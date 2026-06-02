@@ -1,0 +1,11 @@
+{
+  "tag": "q122clip_hle",
+  "model": "models/q122_ptq3b_clip",
+  "think": true,
+  "hle_acc": 13.333333333333334,
+  "hle_acc_finished": 16.52892561983471,
+  "hle_n": 300,
+  "hle_n_finished": 242,
+  "hle_trunc": 58,
+  "seconds": 7391.89927816391
+}

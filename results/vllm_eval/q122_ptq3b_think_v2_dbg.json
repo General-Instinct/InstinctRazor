@@ -1,0 +1,104 @@
+{
+  "mmlu_pro": [
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": "mmary of Changes:**\n*   **U.S. Net Exports:** Increase\n*   **Value of Dollar:** Increase\n*   **Value of Yen:** Decrease\n\nComparing this summary to the provided options, it matches Option D.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": "ll rings.\n    *   **Conclusion:** Statement 2 is **False**.\n\n3.  **Match with Options:**\n    *   Statement 1 is True.\n    *   Statement 2 is False.\n    *   This corresponds to option **C**.\n\nAnswer: C"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": "librium Price: $4.15\n- Condition at $4.00: Shortage of 1800 units\n\nComparing this result with the given options:\nOption C states \"$4.15, shortage of 1800 units\", which matches our findings.\n\nAnswer: C"
+    },
+    {
+      "gold": "G",
+      "parsed": "G",
+      "tail": "ity to change output, leading to *lower* elasticity.\n*   Option G describes a condition (more time) that allows for greater adjustment in production levels, leading to *greater* elasticity.\n\nAnswer: G"
+    },
+    {
+      "gold": "I",
+      "parsed": "I",
+      "tail": "t{ slugs/sec}$.\n\n**6. Compare with Options:**\nThe calculated values are Velocity $\\approx 1460\\text{ fps}$ and Mass Flow Rate $\\approx 1.13\\text{ slugs/sec}$.\nThis matches Option I exactly.\n\nAnswer: I"
+    },
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": "ost is $\\$0.40$ per shoe.\n\nComparing this result to the options provided:\nA. $0.60\nB. $0.50\nC. $0.35\nD. $0.40\nE. $0.70\nF. $0.30\nG. $0.45\nH. $0.25\nI. $0.65\nJ. $0.55\n\nThe correct option is D.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "E",
+      "tail": "ic action that contradicts the goal of reducing it (which requires decreasing complexity). It is the standard \"wrong\" counterpart to the valid \"Decrease model complexity\" option.\n\nAnswer: E\n\nAnswer: E"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "go consists of two interlocking circles. The circle on the left is red, and the circle on the right is yellow (often described as a golden yellow). Therefore, the colors are red and yellow.\n\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "e goods being deemed predominant, meaning the Retailer would lose (Connie wins).\n\nTherefore, Option B is the most accurate statement of the legal standard and the likely outcome.\n\nAnswer: B\n\nAnswer: B"
+    },
+    {
+      "gold": "H",
+      "parsed": "H",
+      "tail": "{15} = \\frac{1}{3} $$\n$$ \\text{Sharpe Ratio} \\approx 0.33 $$\n\n**Step 4: Match the result with the given options.**\nThe calculated value is approximately 0.33, which corresponds to Option H.\n\nAnswer: H"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": "83 = 18150$$\n\nNow, divide by $k! = 3! = 6$:\n$$S(9, 3) = \\frac{18150}{6} = 3025$$\n\nThus, there are 3025 ways to divide the group of 9 people into 3 non-empty subsets.\n\nThis matches option E.\n\nAnswer: E"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "uble taxation.\n*   Option J accurately describes the process where corporate income is taxed first at the corporate level and then again at the personal level when distributed as dividends.\n\nAnswer: J"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "t = 4.0, Selling Price = 3.8, Units = 4.5\n*   Option J: StockturnRate (at Cost) = 4.0, StockturnRate (at selling price) = 3.8, StockturnRate (in units) = 4.5\n\nThis matches Option J exactly.\n\nAnswer: J"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "nstitutional clause, although the Equal Protection Clause is also often implicated in such cases. Option A is the most accurate and encompassing answer regarding the court's duty.\n\nAnswer: A\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "1356...$$\n\nComparing this value with the given options:\nA. 2.718\nB. 1.414\nC. 3.000\nD. 2.235\nE. 3.141\nF. 1.618\nG. 1.732\nH. 0.618\nI. 1.000\nJ. 2.000\n\nThe value $1.414$ corresponds to option B.\n\nAnswer: B"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": "l solution:\n$$v_C(t) = \\frac{3}{2} e^{-t} - \\frac{3}{2} e^{-3t}$$\n$$v_C(t) = \\frac{3}{2} (e^{-t} - e^{-3t}) \\, \\text{V}$$\n\nComparing this result with the given options, it matches Option E.\n\nAnswer: E"
+    },
+    {
+      "gold": "F",
+      "parsed": "F",
+      "tail": " 1,000 + 8,000 + 90 + 6 (Incorrect: equals 9,096)\n    *   I. 10,000 + 8,000 + 100 + 6 (Incorrect: equals 19,106)\n\nOption F correctly represents the value of each digit in the number 18,096.\n\nAnswer: F"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "pecializing and trading, nations can consume at points that lie **beyond** their domestic production possibility curve. This is the standard definition of the \"gains from trade.\"\n\nAnswer: J\n\nAnswer: J"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "nfection.\n    *   Discontinuing all medications (Option G) would likely lead to acute graft rejection.\n\nTherefore, the most appropriate next step is to begin ganciclovir therapy.\n\nAnswer: B\n\nAnswer: B"
+    },
+    {
+      "gold": "I",
+      "parsed": "I",
+      "tail": "ver for the excursion.\n    *   Masseter and temporalis muscles are primarily elevators and retractors, respectively.\n\nTherefore, the **Left lateral pterygoid muscle** is the correct answer.\n\nAnswer: I"
+    }
+  ]
+}

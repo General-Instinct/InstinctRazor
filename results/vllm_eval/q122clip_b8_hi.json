@@ -1,0 +1,15 @@
+{
+  "tag": "q122clip_b8_hi",
+  "model": "models/q122_ptq3b_clip",
+  "think": true,
+  "bbeh_acc": 54.0,
+  "bbeh_n": 100,
+  "bbeh_trunc": 9,
+  "aime_acc": 86.66666666666667,
+  "aime_n": 30,
+  "aime_trunc": 0,
+  "lcb_acc": 67.5,
+  "lcb_n": 80,
+  "lcb_trunc": 20,
+  "seconds": 5827.4916343688965
+}

@@ -1,0 +1,33 @@
+# moe-lowbit — GGUF protected-quantization recipe (Tier-1: protect the ~6% always-on path).
+# NOTE: llama-quantize's --tensor-type-file does NOT skip '#' comments (it tokenizes on whitespace),
+# so strip comments before passing it:  grep -vE '^\s*#|^\s*$' this_file > clean.txt
+# Usage (CPU, no imatrix required for Q3_K / IQ4_NL):
+#   grep -vE '^\s*#|^\s*$' configs/gguf_tensor_types.txt > /tmp/tt.txt
+#   llama-quantize --tensor-type-file /tmp/tt.txt \
+#       --output-tensor-type q8_0 --token-embedding-type q8_0 \
+#       q122_clip-bf16.gguf  q122_clip-Q3K-protected.gguf  Q3_K
+# Matching is substring on the full tensor name; the .weight anchors avoid hitting *_norm tensors.
+# Tensor names verified against the produced GGUF header (see docs/MOE_PIPELINE.md).
+#
+# routed experts -> ~3 bits (matches the source int3 grid); they dominate the footprint:
+ffn_gate_exps.weight=q3_K
+ffn_up_exps.weight=q3_K
+ffn_down_exps.weight=q3_K
+# shared expert (always-on) -> int8:
+ffn_gate_shexp.weight=q8_0
+ffn_up_shexp.weight=q8_0
+ffn_down_shexp.weight=q8_0
+# router / gating (tiny, decides routing) -> f16:
+ffn_gate_inp.weight=f16
+ffn_gate_inp_shexp.weight=f16
+# full-attention layers -> int4:
+attn_q.weight=iq4_nl
+attn_k.weight=iq4_nl
+attn_v.weight=iq4_nl
+attn_qkv.weight=iq4_nl
+attn_output.weight=iq4_nl
+attn_gate.weight=f16
+# Gated-DeltaNet / linear-attention (SSM) projections -> keep high precision (small, recurrent, sensitive):
+ssm_out.weight=f16
+ssm_conv1d.weight=f16
+# (ssm_a / ssm_alpha / ssm_beta / ssm_dt / *_norm are 1-D and stay f16/f32 automatically.)

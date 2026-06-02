@@ -1,0 +1,31 @@
+# moe-lowbit — GGUF i-quant recipe for the REAL deployable artifact (built from the ORIGINAL BF16, not the
+# dequant clip). Experts at IQ3_XXS (~3.06 bpw, REQUIRES --imatrix); always-on path protected. Targets
+# ~47-50 GB. Fall back to iq3_s (~3.44 bpw) for the experts if accuracy drops.
+# NOTE: strip '#' comments before --tensor-type-file (llama-quantize tokenizes on whitespace):
+#   grep -vE '^[[:space:]]*#|^[[:space:]]*$' this > clean.txt
+# Usage:
+#   llama-quantize --imatrix q122.imatrix --tensor-type-file clean.txt \
+#       --output-tensor-type q8_0 --token-embedding-type q8_0 \
+#       q122_orig-bf16.gguf  q122_orig-IQ3XXS-protected.gguf  IQ3_XXS
+#
+# routed experts -> IQ3_XXS (i-quant, imatrix-guided):
+ffn_gate_exps.weight=iq3_xxs
+ffn_up_exps.weight=iq3_xxs
+ffn_down_exps.weight=iq3_xxs
+# shared expert (always-on) -> int8:
+ffn_gate_shexp.weight=q8_0
+ffn_up_shexp.weight=q8_0
+ffn_down_shexp.weight=q8_0
+# router / gating -> f16:
+ffn_gate_inp.weight=f16
+ffn_gate_inp_shexp.weight=f16
+# full-attention layers -> int4:
+attn_q.weight=iq4_nl
+attn_k.weight=iq4_nl
+attn_v.weight=iq4_nl
+attn_qkv.weight=iq4_nl
+attn_output.weight=iq4_nl
+attn_gate.weight=f16
+# Gated-DeltaNet / linear-attention (SSM) -> high precision:
+ssm_out.weight=f16
+ssm_conv1d.weight=f16

@@ -1,0 +1,16 @@
+{
+  "tag": "mm_gemma",
+  "model": "google/gemma-4-31b-it",
+  "mmmu_acc": 79.16666666666667,
+  "mmmu_n": 120,
+  "mmmu_trunc": 0,
+  "mmmu_pro_acc": 81.66666666666667,
+  "mmmu_pro_n": 120,
+  "mmmu_pro_trunc": 0,
+  "mathvision_acc": 68.33333333333333,
+  "mathvision_n": 120,
+  "mathvision_trunc": 0,
+  "medxpert_acc": 39.166666666666664,
+  "medxpert_n": 120,
+  "medxpert_trunc": 0
+}

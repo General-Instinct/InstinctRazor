@@ -1,0 +1,21 @@
+{
+  "tag": "q122_bf16_ladder_32k",
+  "model": "Qwen/Qwen3.5-122B-A10B",
+  "think": true,
+  "mmlu_pro_acc": 87.6,
+  "mmlu_pro_acc_finished": 87.6,
+  "mmlu_pro_n": 500,
+  "mmlu_pro_n_finished": 500,
+  "mmlu_pro_trunc": 0,
+  "gpqa_acc": 83.83838383838383,
+  "gpqa_acc_finished": 85.12820512820512,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 195,
+  "gpqa_trunc": 3,
+  "mmmlu_acc": 88.8,
+  "mmmlu_acc_finished": 88.8,
+  "mmmlu_n": 500,
+  "mmmlu_n_finished": 500,
+  "mmmlu_trunc": 0,
+  "seconds": 2057.6525893211365
+}

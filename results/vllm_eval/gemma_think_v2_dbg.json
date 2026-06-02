@@ -1,0 +1,104 @@
+{
+  "mmlu_pro": [
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": " No Change, Increase, Decrease\nG. Increase, Decrease, Increase\nH. Increase, No Change, Decrease\nI. Decrease, Increase, Increase\nJ. Decrease, Decrease, Decrease\n\nThe result matches Option D.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": "wever, $\\deg f(x) + \\deg g(x) = 1 + 1 = 2$.\nSince $1 \\neq 2$, the statement does not hold for all rings.\n**Statement 2 is False.**\n\nConclusion: Statement 1 is True and Statement 2 is False.\n\nAnswer: C"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": "0 units\nB. $4.20, shortage of 1200 units\nC. $4.15, shortage of 1800 units\nD. $4.00, surplus of 1800 units\nE. $4.10, surplus of 300 units\n... (others are incorrect)\n\nThe correct option is C.\n\nAnswer: C"
+    },
+    {
+      "gold": "G",
+      "parsed": "G",
+      "tail": "3.  **Conclusion:** The most significant factor among the choices provided that increases the elasticity of supply is the amount of time producers have to adjust their production processes.\n\nAnswer: G"
+    },
+    {
+      "gold": "I",
+      "parsed": "I",
+      "tail": "pprox 1.125 \\text{ slugs/sec}$\n\nComparing our results ($V_2 \\approx 1460 \\text{ fps}$ and $\\dot{m} \\approx 1.13 \\text{ slugs/sec}$) with the given options, we find that they match Option I.\n\nAnswer: I"
+    },
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": ",500}$$\n\n4.  **Perform the division:**\n    $$\\text{AFC}_2 = \\frac{5,000}{12,500} = \\frac{50}{125} = \\frac{2}{5} = 0.40$$\n\nThe average fixed cost at an output of 12,500 shoes would be $0.40.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "B",
+      "tail": "ove the model's actual generalization; it only masks the problem. Option E is the opposite of a standard fix, but in modern contexts, it can sometimes help. Option B is universally invalid.\n\nAnswer: B"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "ct\nE. brown and white - Incorrect\nF. orange and black - Incorrect\nG. pink and green - Incorrect\nH. purple and blue - Incorrect\nI. pink and orange - Incorrect\nJ. green and yellow - Incorrect\n\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "C",
+      "tail": "pose. If the predominant purpose was the laptop, the UCC applies. If the predominant purpose was the service agreement, common law applies. Option C correctly captures this legal framework.\n\nAnswer: C"
+    },
+    {
+      "gold": "H",
+      "parsed": "H",
+      "tail": "Sharpe Ratio \u2248 0.3333...\n\nComparing this result to the given options:\nA. 1.50\nB. 1.00\nC. 0.20\nD. 0.25\nE. 0.50\nF. 1.25\nG. 0.75\nH. 0.33\nI. 2.00\nJ. 0.60\n\nThe calculated value matches option H.\n\nAnswer: H"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": "2(63) = 127, S(8, 3) = 63 + 3(301) = 966$\n- $S(9, 3) = S(8, 2) + 3 \\cdot S(8, 3) = 127 + 3(966) = 127 + 2898 = 3025$\n\nThe number of ways to divide 9 people into 3 non-empty subsets is 3025.\n\nAnswer: E"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": " describe other types of taxation or incorrect interpretations of the corporate tax system.\n- J accurately describes the corporate-level tax followed by the personal-level tax on dividends.\n\nAnswer: J"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "4.5\n\nComparing these results to the given options:\n*   Stockturn Rate (at Cost) = 4.0\n*   Stockturn Rate (at selling price) = 3.8\n*   Stockturn Rate (in units) = 4.5\n\nThis matches Option J.\n\nAnswer: J"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "rits\" is the broader and more correct action the court should take.\n\nThe federal court has jurisdiction over the federal constitutional questions raised and should proceed to hear the case.\n\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "ions:**\n    A. 2.718\n    B. 1.414\n    C. 3.000\n    D. 2.235\n    E. 3.141\n    F. 1.618\n    G. 1.732\n    H. 0.618\n    I. 1.000\n    J. 2.000\n\n    The calculated limit $1.414$ matches option B.\n\nAnswer: B"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": "$ back into the general solution:\n$v_C(t) = \\frac{3}{2}e^{-t} - \\frac{3}{2}e^{-3t} = \\frac{3}{2}(e^{-t} - e^{-3t})\\text{V}$\n\nComparing this result to the given options, it matches option E.\n\nAnswer: E"
+    },
+    {
+      "gold": "F",
+      "parsed": "F",
+      "tail": "h E and F equal 18,096, the standard mathematical \"expanded form\" requires breaking the number down into each individual place value. Therefore, Option F is the most accurate expanded form.\n\nAnswer: F"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "means they can consume more than they could produce on their own.\n\n4.  **Conclusion:** Option J correctly describes the relationship between free trade and the production possibility curve.\n\nAnswer: J"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "ed on the clinical presentation and histological findings, the most likely diagnosis is CMV infection, and the most appropriate next step in management is the administration of ganciclovir.\n\nAnswer: B"
+    },
+    {
+      "gold": "I",
+      "parsed": "I",
+      "tail": "excursion)\n    *   J. Right medial pterygoid (Assists in left lateral excursion)\n\nThe most active muscle during right lateral excursion of the mandible is the left lateral pterygoid muscle.\n\nAnswer: I"
+    }
+  ]
+}

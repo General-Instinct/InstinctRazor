@@ -1,0 +1,11 @@
+{
+  "tag": "q122_bf16_lcb_fix",
+  "model": "Qwen/Qwen3.5-122B-A10B",
+  "think": true,
+  "lcb_acc": 64.5,
+  "lcb_acc_finished": 72.57142857142857,
+  "lcb_n": 200,
+  "lcb_n_finished": 175,
+  "lcb_trunc": 25,
+  "seconds": 1908.0229651927948
+}

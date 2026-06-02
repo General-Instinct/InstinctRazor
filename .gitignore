@@ -1,0 +1,45 @@
+# ── model weights / large artifacts (NEVER commit — GGUFs are 48–245 GB) ──
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.npz
+*.imatrix
+models/
+**/checkpoint*/
+**/*adapter*/
+
+# ── secrets ──
+.env
+.env.*
+*.key
+*.pem
+*.crt
+.ght
+*token*.txt
+id_rsa*
+
+# ── internal-only (agent memory, transcripts, IDE) ──
+memory/
+MEMORY.md
+.claude/
+*.jsonl
+
+# ── Python / venv / build junk ──
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+*venv*/
+.venv/
+node_modules/
+*.egg-info/
+build/
+dist/
+
+# ── logs / scratch / OS ──
+*.log
+logs/
+/tmp/
+results/stage2/
+.DS_Store

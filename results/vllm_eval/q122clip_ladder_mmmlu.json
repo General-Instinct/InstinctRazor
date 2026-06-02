@@ -1,0 +1,11 @@
+{
+  "tag": "q122clip_ladder_mmmlu",
+  "model": "models/q122_ptq3b_clip",
+  "think": true,
+  "mmmlu_acc": 87.2,
+  "mmmlu_acc_finished": 87.2,
+  "mmmlu_n": 500,
+  "mmmlu_n_finished": 500,
+  "mmmlu_trunc": 0,
+  "seconds": 583.2190799713135
+}

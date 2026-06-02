@@ -1,0 +1,19 @@
+{
+  "tag": "q122_bf16_think",
+  "model": "Qwen/Qwen3.5-122B-A10B",
+  "think": true,
+  "budget": 32768,
+  "mmlu_pro_acc": 91.25,
+  "mmlu_pro_n": 80,
+  "mmlu_pro_trunc": 0,
+  "gpqa_acc": 83.75,
+  "gpqa_n": 80,
+  "gpqa_trunc": 1,
+  "gsm8k_acc": 98.75,
+  "gsm8k_n": 80,
+  "gsm8k_trunc": 3,
+  "humaneval_pass@1": 96.25,
+  "he_n": 80,
+  "he_trunc": 0,
+  "seconds": 1227.9570925235748
+}

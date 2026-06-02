@@ -1,0 +1,16 @@
+{
+  "tag": "mm_ours",
+  "model": "models/q122_ptq3b_clip",
+  "mmmu_acc": 75.83333333333333,
+  "mmmu_n": 120,
+  "mmmu_trunc": 10,
+  "mmmu_pro_acc": 80.83333333333333,
+  "mmmu_pro_n": 120,
+  "mmmu_pro_trunc": 11,
+  "mathvision_acc": 70.0,
+  "mathvision_n": 120,
+  "mathvision_trunc": 24,
+  "medxpert_acc": 40.0,
+  "medxpert_n": 120,
+  "medxpert_trunc": 0
+}

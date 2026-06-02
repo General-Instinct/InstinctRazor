@@ -1,0 +1,11 @@
+{
+  "tag": "gemma4_a4b_lcb_32k",
+  "model": "google/gemma-4-26b-a4b-it",
+  "think": true,
+  "lcb_acc": 91.0,
+  "lcb_acc_finished": 94.30051813471502,
+  "lcb_n": 200,
+  "lcb_n_finished": 193,
+  "lcb_trunc": 7,
+  "seconds": 573.6231670379639
+}

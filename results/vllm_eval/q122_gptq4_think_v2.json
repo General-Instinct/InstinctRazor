@@ -1,0 +1,19 @@
+{
+  "tag": "q122_gptq4_think_v2",
+  "model": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+  "think": true,
+  "budget": 32768,
+  "mmlu_pro_acc": 92.0,
+  "mmlu_pro_n": 200,
+  "mmlu_pro_trunc": 0,
+  "gpqa_acc": 84.34343434343434,
+  "gpqa_n": 198,
+  "gpqa_trunc": 2,
+  "gsm8k_acc": 99.0,
+  "gsm8k_n": 200,
+  "gsm8k_trunc": 2,
+  "humaneval_pass@1": 95.73170731707317,
+  "he_n": 164,
+  "he_trunc": 0,
+  "seconds": 1354.3556027412415
+}

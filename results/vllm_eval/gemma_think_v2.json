@@ -1,0 +1,19 @@
+{
+  "tag": "gemma_think_v2",
+  "model": "google/gemma-4-31b-it",
+  "think": true,
+  "budget": 32768,
+  "mmlu_pro_acc": 85.5,
+  "mmlu_pro_n": 200,
+  "mmlu_pro_trunc": 0,
+  "gpqa_acc": 84.84848484848484,
+  "gpqa_n": 198,
+  "gpqa_trunc": 2,
+  "gsm8k_acc": 98.5,
+  "gsm8k_n": 200,
+  "gsm8k_trunc": 0,
+  "humaneval_pass@1": 95.1219512195122,
+  "he_n": 164,
+  "he_trunc": 0,
+  "seconds": 1287.5556359291077
+}

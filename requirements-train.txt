@@ -1,0 +1,24 @@
+# moe-lowbit — OPD TRAINING environment (distill.sh phase C only: opd_train_fsdp.py).
+# A SEPARATE venv from the eval one because FSDP2 + the Gated-DeltaNet/linear-attention
+# MoE kernels need torch 2.7 + flash-linear-attention, which conflict with vLLM's torch 2.11.
+# Phases A/B of OPD (gen/score) still use the EVAL venv (requirements.txt); only the
+# torchrun FSDP2 training step uses this one.
+#
+#   python3.12 -m venv venv --system-site-packages   # reuse system torch 2.7+cu128
+#   source venv/bin/activate && pip install -r requirements-train.txt
+#
+# Verified on: 4x NVIDIA H100 80GB HBM3, driver 580.105.08, CUDA 13.0, ~885 GB CPU RAM.
+
+torch==2.7.0
+transformers==5.9.0
+accelerate==1.13.0
+datasets==4.8.5
+numpy==1.26.4
+pillow==10.2.0
+triton==3.3.0
+sentencepiece==0.2.1
+
+# the Gated-DeltaNet / linear-attention kernels for the Qwen3.5 hybrid-MoE forward:
+flash-linear-attention==0.5.0
+
+# No vllm / flash-attn / xformers in this venv.

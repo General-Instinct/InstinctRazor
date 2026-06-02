@@ -1,0 +1,11 @@
+{
+  "tag": "a4b_hle_pre",
+  "model": "google/gemma-4-26b-a4b-it",
+  "think": true,
+  "hle_acc": 10.0,
+  "hle_acc_finished": 12.5,
+  "hle_n": 100,
+  "hle_n_finished": 80,
+  "hle_trunc": 20,
+  "seconds": 742.9927241802216
+}

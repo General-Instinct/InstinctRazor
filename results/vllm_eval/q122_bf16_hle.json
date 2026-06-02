@@ -1,0 +1,11 @@
+{
+  "tag": "q122_bf16_hle",
+  "model": "Qwen/Qwen3.5-122B-A10B",
+  "think": true,
+  "hle_acc": 18.0,
+  "hle_acc_finished": 21.176470588235293,
+  "hle_n": 300,
+  "hle_n_finished": 255,
+  "hle_trunc": 45,
+  "seconds": 6498.762941122055
+}

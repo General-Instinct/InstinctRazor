@@ -1,0 +1,16 @@
+{
+  "tag": "smoke_2b",
+  "model": "models/smoke_2b_q4",
+  "think": true,
+  "mmlu_pro_acc": 12.5,
+  "mmlu_pro_acc_finished": 100.0,
+  "mmlu_pro_n": 40,
+  "mmlu_pro_n_finished": 1,
+  "mmlu_pro_trunc": 39,
+  "math500_acc": 2.5,
+  "math500_acc_finished": 0.0,
+  "math500_n": 40,
+  "math500_n_finished": 0,
+  "math500_trunc": 40,
+  "seconds": 205.64482641220093
+}

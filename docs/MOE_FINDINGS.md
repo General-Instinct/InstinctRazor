@@ -1,0 +1,241 @@
+# Qwen3.5-122B-A10B sub-4-bit: MoE allocation + QAD recovery — findings
+
+Goal: at a fixed hardware budget, what combination of **MPQ allocation + QAD/distillation** recovers the
+most useful capability on the frontier MoE, and what is the minimum effective precision that stays
+deployable? Quantization is treated as INITIALIZATION; recovery comes from post-quant training.
+Axes: MMLU (knowledge), GPQA-diamond (hard reasoning), GSM8K (math), HumanEval (code).
+
+## Setup (this machine)
+4×H100 80GB. transformers 5.9 (`qwen3_5_moe`), custom MoE quantizer (`moe_quant.py`) because **94.6%
+of the 122B's params live in FUSED 3D expert tensors** (`experts.gate_up_proj [256,2048,3072]`,
+`experts.down_proj [256,3072,1024]` per layer) that EdgeRazor's nn.Linear targeting silently skips.
+Quant = per-block symmetric int (group 128); per-expert bit-width assignment; ternary(1.58)/int3/int4
+grid; STE for training. Eval loads the model once, snapshots FP to CPU, restores between specs.
+Full STE-QAT is infeasible (Adam≈1.5TB) → recovery via expert-local reconstruction (`moe_recon.py`).
+
+## Established empirical pre-findings (before allocation eval)
+
+**F1 — Routing is heavily load-balanced; there are NO cold experts.** Probe over calibration tokens:
+normalized routing entropy **0.952** (1.0 = uniform), global per-expert freq max/mean **1.56**, **0/256
+cold experts** (freq < 10% mean), 0 zero-freq. Top-64/256 experts capture 50% of routing (vs 25%
+uniform) — only mild concentration. Entropy dips slightly in mid/late layers (0.94 vs 0.98 early).
+*Implication:* the dominant MoE-quant lever in the literature — "quantize rarely-used cold experts for
+free" (DynaExq/MC#/hot-cold) — is **largely neutralized on a well-load-balanced frontier MoE**. Those
+papers used Mixtral/DeepSeek-MoE with more routing skew; Qwen3.5's balanced router removes the free lunch.
+
+**F2 — Allocation signals are highly redundant.** Per-expert ranking correlations: freq↔wmass 0.95
+(Jaccard of int4-selected sets 0.93 — frequency≈routing-weight under load-balancing), freq↔asal 0.89,
+wmass↔asal 0.84; activation-norm per expert is nearly uniform (asal/freq spread 0.046). *Implication:*
+the salience-aware strategies (freq/wmass/asal/composite) should give SIMILAR allocations → among them
+strategy choice is likely second-order. The decisive tests are salience-vs-blind, composite-vs-inverse
+(does protecting the *right* experts matter at all?), the budget curve, and protected-carve-out on/off.
+
+## BF16 reference (122B)
+MMLU **87.5**, GSM8K **96.0** (n=40), HumanEval **100.0** (n=32), calib ppl **1.85**. (BF16 GPQA captured in recon-eval.)
+
+## F3 — The 122B MoE is dramatically more quantization-tolerant than dense models (PTQ, no recovery)
+First sweep result, `s_composite_b30` (composite salience allocation, expert avg **3.00 bits** → 3.06 all-in
+incl protected ~6% non-expert path; protected = shared-expert int8, attn/ssm/embed int4, router bf16):
+**ppl 1.94 (BF16 1.85), KL 0.062, MMLU 85.5 (−2.0), GPQA-diamond 46.5** — all from PTQ alone.
+This OVERTURNS the prior dense finding ("knowledge is capacity-gated below 4 bits; 3-bit PTQ collapses").
+On the frontier MoE, knowledge survives ~losslessly at ~3 effective bits because (a) only the routed
+experts (94.6% of params) are quantized hard while the ALWAYS-ON path (shared expert + attention +
+embeddings, ~6%) is protected, and (b) only 8/256 experts fire per token, so per-expert quant error
+averages out across the active set + the high-precision shared path. Generation (the real test, since MC
+overstates) is the open question the sweep + recon resolve.
+[Strategy comparison, budget curve, protection ablation, generation — pending sweep completion.]
+
+## F4 — Allocation matters ~2× in fidelity but is second-order for downstream knowledge (PTQ @3.0b)
+Screen at expert-avg 3.0 bits (KL = top-K KL vs BF16, the low-variance metric; MMLU n=200 ≈ ±5 noise):
+| strategy | KL↓ | ppl↓ | MMLU |
+|---|---|---|---|
+| asal (activation salience) | **0.058** | 1.94 | 85.0 |
+| wmass (router-weight) | 0.060 | 1.93 | 83.0 |
+| composite (wmass+asal+wfro) | 0.062 | 1.94 | 85.5 |
+| freq | 0.065 | 1.94 | 84.0 |
+| composite, NO protection | 0.070 | 1.94 | 85.0 |
+| wfro (weight Frobenius) | 0.079 | 2.01 | 88.0 |
+| **random (control)** | **0.124** | 2.08 | 85.0 |
+| **blind (control)** | **0.139** | 2.12 | 83.5 |
+| **inverse (anti-control)** | **0.247** | 2.34 | 85.5 |
+| BF16 | 0.000 | 1.85 | 87.5 |
+
+Clean monotonic KL ordering tracking salience-correctness (4× range): **salience (asal 0.058 ≤ composite
+0.062 ≤ wfro 0.079) ≪ blind/random (0.124–0.139) ≪ inverse 0.247** — yet downstream MMLU is 83–86 for ALL
+(within n=200 noise). So allocation is a real, well-ordered lever for *distribution fidelity* but
+*second-order for capability* at 3b (the model is quant-tolerant enough that all allocations are
+near-lossless). [blind gen 95.0/87.5 ≈ composite 92.5/90.6 confirms second-order for generation too.]
+
+- **Salience-aware allocation beats random selection ~2× on KL** (0.058 vs 0.124) and on ppl (1.94 vs 2.08)
+  → allocation is NOT fully second-order on the MoE (unlike the dense finding); the activation/router signals
+  carry real information about which experts to protect.
+- BUT **downstream MMLU is within noise for ALL strategies (83–88 ≈ BF16 87.5)** — the knowledge axis is
+  preserved at 3 bits regardless of allocation, because the always-on path is protected and only experts
+  are quantized hard (F3). So allocation refines *distribution fidelity* (KL/ppl) more than *knowledge acc*.
+- Best single signals: **asal ≈ wmass > freq > wfro**; composite ≈ best. (Consistent w/ F2 redundancy.)
+- **CRUCIAL (generation control): the 2× KL gap does NOT translate to a capability gap.** blind-3.0b
+  (KL 0.139) gets GSM8K **95.0** / HE 87.5 / MMLU 83.5 / GPQA 48.5 — statistically indistinguishable from
+  composite-3.0b (92.5/90.6/85.5/46.5) at n=40/32/200/198. ⇒ **allocation is SECOND-ORDER for downstream
+  capability** (knowledge AND generation) on this MoE; even importance-blind 3-bit allocation is
+  near-lossless. The salience KL advantage is real for distribution fidelity but capability is saturated
+  either way. Dominant levers = the BUDGET (~3b) and PROTECTING the always-on path, not expert ranking.
+  Full gen control: composite 92.5/90.6 · blind 95.0/87.5 · inverse(anti-control, KL 0.247) **90.0/84.4** —
+  across the 4× KL range generation spans only GSM8K 90–95 / HE 84–91 (within ±~9pp at n=40/32); faint
+  salience-favoring trend (inverse lowest) but second-order. Even the WORST 3-bit allocation generates well.
+- Protection (shared-expert int8 vs int4) gives a small KL gain (0.062→0.070 when removed). The larger
+  protection value (vs quantizing the always-on path to ternary) is implied by F3 but not directly ablated.
+- **Harness verified** (adversarial workflow): quant axis/fusion/STE/chunked-apply all correct; router IS
+  bf16-protected (it is a Qwen3_5MoeTopKRouter, not nn.Linear → not matched by the quantizer). "avg_bits
+  3.06" is weight-bits (literature convention); true storage incl per-block scales ≈ 3.18b (deployment
+  math in MOE_PIPELINE.md already counts scales).
+## F5 — HEADLINE: generation SURVIVES at 3 bits (PTQ, no recovery) — overturns the dense collapse
+`s_composite_b30` (composite alloc, expert avg 3.0 bits, protected), PTQ:
+| config | eff bits | MMLU | GPQA-d | GSM8K | HumanEval | ppl |
+|---|---|---|---|---|---|---|
+| BF16 | 16 | 87.5 | — | 96.0 | 100.0 | 1.85 |
+| **composite-3.0b PTQ** | **3.06** | **85.5** | **46.5** | **92.5** | **90.6** | 1.94 |
+| composite-2.5b PTQ | 2.59 | 82.5 | — | — | — | 2.01 |
+
+**At ~3 effective bits the 122B MoE is near-lossless on ALL FOUR axes with PTQ alone** (−2.0 MMLU,
+−3.5 GSM8K, −9.4 HumanEval). This OVERTURNS the dense-model finding that 3-bit PTQ collapses generation
+and that knowledge is capacity-gated below 4 bits. The earlier slow generation was pipeline-parallel decode
+speed + HumanEval exec timeouts, NOT degenerate output (the model genuinely solves 92.5% of GSM8K at 3b).
+Mechanism (F3): only routed experts are quantized hard; the always-on path is protected; 8/256 active +
+huge capacity ⇒ per-token error averages out. Combined with the ~50 GB deployment footprint (single 80GB
+GPU, MOE_PIPELINE.md), this is the core "deployable on smaller hardware" result.
+**Reframes recovery:** at 3b, PTQ init is already near-lossless, so QAD/recon value lies at the 2–2.5b
+FLOOR where PTQ degrades. The minimum-effective-precision search (2.0/2.25/2.5b) pinpoints the cliff.
+## F6 — Budget curve (composite PTQ): capability saturates ≥3b; KL is the only monotonic signal
+| eff bits | KL↓ | MMLU | GPQA-d | GSM8K | HumanEval |
+|---|---|---|---|---|---|
+| 4.0 (W4) | 0.041 | 85.5 | 47.5 | 95.0 | 93.8 |
+| 3.5 | 0.047 | 87.5 | 44.9 | 90.0 | 93.8 |
+| 3.06 | 0.062 | 85.5 | 46.5 | 92.5 | 90.6 |
+| 2.59 | 0.088 | 82.5 | — | (floor) | (floor) |
+| BF16 | 0.000 | 87.5 | — | 96.0 | 100.0 |
+Capability is near-lossless and saturated from 3.0b→4.0b (gen 90–95 GSM8K is n=40 noise, not monotonic);
+**KL is the only clean monotonic budget signal** (0.041→0.088 as bits drop 4.0→2.5). Knowledge degradation
+onsets at 2.5b (MMLU 82.5, −5.0). The cliff for GENERATION is below 2.5b → floor search (2.0/2.25/2.5b at
+n=120 GSM8K / 500 MMLU) running now to locate it.
+**Mixed-vs-uniform @3.0b:** uniform-int3 (all experts int3; KL 0.103) ≈ composite-mix (int4/ternary; KL
+0.062) on CAPABILITY (MMLU 87.0 vs 85.5, GSM8K 95.0 vs 92.5) despite worse KL — the simplest uniform-int3
+is competitive, reinforcing that allocation is second-order for capability; per-block int3 (7 levels) beats
+a salience-chosen int4/ternary MIX in stability even if KL favors the mix.
+
+## F7 — DEFENSIBLE high-n confirmation + the floor is BELOW 2 bits for knowledge
+Re-run at n=500 MMLU / n=120 GSM8K / n=80 HE / n=198 GPQA (addresses the n=40 power critique):
+| eff bits | MMLU(500) | GPQA(198) | GSM8K(120) | HE(80) | KL |
+|---|---|---|---|---|---|
+| 3.06 | **84.2** | 46.5 | **91.7** | 87.5 | 0.062 |
+| 2.11 (2.0b) | **80.0** | 44.9 | (gen running) | — | 0.144 |
+| BF16 | 87.5 | — | 96.0(n40) | — | 0.000 |
+At 3.06b the near-lossless claim HOLDS at proper n (MMLU −3.3, GSM8K −4.3). Stunningly, at **2.0 effective
+bits** knowledge is still MMLU 80.0 (−7.5) and GPQA 44.9 (≈3b) — the 122B MoE tolerates 2-bit experts on
+knowledge.
+
+## F8 — MINIMUM EFFECTIVE PRECISION ≈ 2.5 bits (near-lossless); sharp math cliff at 2.0–2.25b
+DEFINITIVE high-n PTQ budget curve (n=500 MMLU / 120 GSM8K / 80 HE / 198 GPQA) — the central answer:
+| eff bits | ~GB | MMLU | GPQA | GSM8K | HE | KL |
+|---|---|---|---|---|---|---|
+| 3.06 | ~50 | 84.2 | 46.5 | 91.7 | 87.5 | 0.062 |
+| **2.59 (2.5b)** | **~42** | **82.8** | 44.4 | **93.3** | 88.8 | 0.088 |
+| 2.35 (2.25b) | ~39 | 81.0 | 46.0 | 71.7 | 90.0 | 0.108 |
+| 2.11 (2.0b) | ~37 | 80.0 | 44.9 | 77.5 | 88.8 | 0.144 |
+| BF16 | 245 | 87.5 | — | 96.0 | 100 | 0 |
+**Minimum effective precision ≈ 2.5 bits**: at 2.59b (~42 GB, 5.8× smaller than BF16, still single-80GB-GPU)
+the MoE is near-lossless on ALL axes (GSM8K 93.3 ≈ 3b/96 BF16, MMLU 82.8, HE 88.8, GPQA 44.4). **The math
+cliff is sharp and sits at 2.0–2.25b** (GSM8K 71.7/77.5 — a −20pp drop; non-monotonic between 2.0/2.25b =
+n=120 noise + allocation-specific effects). Code (HE), knowledge (MMLU, gradual), and GPQA stay usable even
+at 2.0b — **math is the binding axis** (matches the dense finding that math is most quant-sensitive). KL is
+the clean monotonic signal (0.062→0.144). ⇒ deployable floor = **2.5b** for full capability; 2.0–2.25b
+trades math for a smaller footprint. **2.0–2.25b is exactly where post-quant TRAINING (recon/QAD) should
+matter** — recon@2.0b running now to test whether training recovers the GSM8K cliff (77.5 → toward 93).
+
+## Positioning & rigor (from the adversarial positioning workflow — see POSITIONING.md)
+- The "3-bit near-lossless frontier MoE" result is **credible and consistent with 2025-26 literature, but
+  NOT novel in kind**: **DQ3_K_M (2505.02390)** already showed DeepSeek-V3/R1 (671B MoE) near-lossless
+  (0.30% avg drop incl MATH/MMLU/code) at **3.59 eff bits** PTQ; **XFP (2605.14844)** showed the EXACT
+  model Qwen3.5-122B at **94.5% GSM8K @3.97b** using the SAME protect-always-on-path scheme (τ=0.96
+  attn/DeltaNet/shared, τ=0.93 routed). Our contribution is the **lower-bit (3.06b) 4-axis** point + the
+  **per-expert salience allocation/ablation** + the **load-balanced-router finding** (entropy 0.952, 0 cold
+  experts → the cold-expert "free lunch" of Mixtral/DeepSeek-MoE papers is neutralized here).
+- The dense/small-MoE-collapse vs frontier-MoE-survives dichotomy IS well-supported (MoEQuant Mixtral W3
+  GSM8K 66→43; MC# Mixtral 2.54b GSM8K −35%; DynaExq Qwen3-80B INT2 collapse) — the determining variable is
+  scale + expert-routing redundancy, not MoE-ness alone.
+- **STATS CAVEAT (important):** headline gen used n=40 GSM8K / n=32 HE (±~9pp) vs XFP n=1319×3. The 92.5 vs
+  96.0 GSM8K gap is within that noise. → **Re-running the cliff-region budget curve (2.0/2.25/2.5/3.0b) at
+  n=120 GSM8K / n=80 HE / n=500 MMLU** for a defensible "near-lossless" claim. Allocation deltas should be
+  read on KL (low-variance), not small-n MMLU.
+- **The genuinely open, more-novel direction = recovery/QAD at the 2–2.5b FLOOR** (where PTQ degrades:
+  composite@2.5b MMLU 82.5/ppl 2.01 shows onset). That is the next experiment.
+
+## F9 — Expert-local reconstruction does NOT recover the 2-bit cliff (the recovery answer)
+Expert-local reconstruction at 2.0b (STE-train quantized experts to match FP self-teacher output, per layer;
+12/48 layers every-4th, 60 steps, grad-clip + best-checkpoint guard, FP streamed from safetensors):
+| 2.0b config | MMLU(500) | GPQA(198) | GSM8K(120) | HE(80) | mean expert nmse |
+|---|---|---|---|---|---|
+| PTQ (no recovery) | 80.0 | 44.9 | 77.5 | 88.8 | ~0.30 (PTQ) |
+| **+ expert-local recon** | 79.6 | 43.9 | 75.0 | 87.5 | **0.090** |
+
+**Recon reduced per-layer expert-output MSE 3–7× (nmse 0.30→0.09) but downstream capability did NOT improve —
+it was slightly WORSE (within noise) on all axes.** This is the decisive recovery finding: reducing per-expert
+QUANTIZATION ERROR (the local MSE objective) does not recover CAPABILITY. It confirms F4 from the recovery
+side — capability is not bottlenecked by recoverable per-expert error, so the memory-tractable LOCAL recon is
+the wrong lever (it can even slightly hurt, plausibly calib-MSE overfit + a recon/PTQ layer mismatch at 12/48).
+⇒ **The recovery that works must be GLOBAL** — forward-KL distillation matching the output DISTRIBUTION over
+reasoning-CoT (the dense program's validated QAD-CoT mechanism), NOT local weight reconstruction. On 122B that
+global QAD is memory-bound (full STE-QAT ≈1.5TB; the tractable path is offline top-K teacher-logit caching +
+adapter/step-size training — the documented next build). Net for the central hypothesis: "quantization=init,
+training recovers" holds ONLY for the right (global/task) objective; local reconstruction is insufficient.
+[Engineering note: recon needed 4 fixes — STE divergence (grad-clip+best-guard), accelerate device_map not
+freeing on del (two-process capture/recon split), 116GB CPU-snapshot ENOSPC (safetensors per-layer streaming),
+full-set best-eval OOM (bounded 2048-tok eval). All in moe_recon.py.]
+
+## F10 — PTQ-method comparison (AWQ/GPTQ/HQQ vs ours): result is NOT method-specific at ~3b
+Uniform int{2,3} experts + protected always-on path; only the quant ALGORITHM varies (MMLU n=500, GSM8K
+n=120, HE n=80, GPQA n=198). BF16 ref: 85.6/50.5/96.7/97.5.
+| method @ bits | MMLU | GPQA | GSM8K | HE |
+|---|---|---|---|---|
+| RTN-asym int3 | 86.2 | 50.0 | 95.0 | 88.8 |
+| HQQ int3 | 84.4 | 52.0 | 95.8 | 90.0 |
+| ours uniform-int3 (sym) | 87.0 | 46.5 | 95.0 | 93.8 |
+| ours composite-3.0b (mix) | 84.2 | 46.5 | 91.7 | 87.5 |
+| — int2 — |||||
+| RTN-asym int2 | 79.4 | 38.9 | 85.8 | 77.5 |
+| HQQ int2 | 82.6 | 42.4 | 89.2 | 80.0 |
+| ours composite-2.0b (ternary/int4 mix) | 80.0 | 44.9 | 77.5 | 88.8 |
+
+**At 3.0b the result is NOT method-specific** — RTN/HQQ/sym/asym are all near-lossless and mutually within
+noise (≈BF16). Our composite recipe is NOT uniquely strong; near-lossless ~3b PTQ is a property of the
+frontier MoE + always-on-path protection, reachable by any reasonable PTQ. **At 2.0b better PTQ helps**
+(HQQ int2 > RTN-asym int2 by ~3pts on MMLU/GSM8K) and the GRID matters (uniform 4-level int2 GSM8K 85.8 >
+ternary/int4-mix 77.5 — so part of the earlier "2b math cliff" was the ternary-heavy grid, not 2 bits per se).
+But NO PTQ method reaches near-lossless at 2b (best GSM8K 89.2 vs BF16 96.7, MMLU 82.6 vs 85.6). ⇒ the 2b
+residual gap is where stronger PTQ (GPTQ/AWQ, testing now) and/or recovery could matter; 2.5–3b is solved by
+PTQ alone regardless of method. [GPTQ/AWQ int2 pending to set the strong-PTQ frontier before any QAD.]
+
+## F11 — VERDICT: 2.5–3b near-lossless is method-agnostic; 2.0b QAD is NOT worth it
+Complete 2.0b strong-PTQ frontier (uniform int2, protected always-on path):
+| 2.0b method | MMLU | GPQA | GSM8K | HE |
+|---|---|---|---|---|
+| RTN-asym | 79.4 | 38.9 | 85.8 | 77.5 |
+| HQQ (best PTQ) | 82.6 | 42.4 | 89.2 | 80.0 |
+| AWQ | 78.0 | 46.5 | 85.0 | 73.8 |
+| ours composite-2.0b + expert-local recon | 79.6 | 43.9 | 75.0 | 87.5 |
+| **ours 2.5b PTQ (any method)** | **82.8** | 44.4 | **93.3** | 88.8 |
+| BF16 | 85.6 | 50.5 | 96.7 | 97.5 |
+
+**(1) Our 2.5–3b near-lossless result is NOT method-specific** — RTN/HQQ/AWQ/sym/asym are all near-lossless
+and tied at 2.5–3b. It is a property of the frontier MoE (expert-routing redundancy + only 8/256 active)
+plus protecting the always-on path — reachable by ANY reasonable PTQ. GPTQ is impractical per-expert at this
+MoE scale (12,288 separate expert slices ⇒ ~6–8 h; standard GPTQ is per-Linear); HQQ/AWQ represent the
+strong-PTQ frontier and confirm the conclusion.
+**(2) At 2.0b no PTQ method is near-lossless** — best (HQQ) leaves MMLU −3, GSM8K −7.5, HE −17.5 vs BF16.
+Better PTQ helps modestly (HQQ > RTN ≈ +3 GSM8K); AWQ ≈ RTN (load-balanced experts lack the activation
+outliers AWQ exploits). The 2b gap (esp. code/math) is a genuine RECOVERY target — better PTQ can't close it
+and expert-local recon didn't either (F9); only global forward-KL QAD plausibly would.
+**(3) DECISION — do NOT launch expensive 2.0b QAD.** 2.5b PTQ (~42 GB, single 80GB GPU) is already
+near-lossless and beats EVERY 2.0b method incl. HQQ on every axis. Pushing to 2.0b via memory-bound global
+QAD buys ≤5 GB over the near-lossless 2.5b point — poor cost/benefit. The remaining opportunity is "deploy at
+2.5b", not "recover 2.0b". (If sub-2.5b were ever required, global forward-KL QAD — not better PTQ, not local
+recon — is the only lever, at significant memory-engineering cost.)

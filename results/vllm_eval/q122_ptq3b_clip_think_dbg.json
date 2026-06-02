@@ -1,0 +1,104 @@
+{
+  "mmlu_pro": [
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": "e **Value of Yen Decreases**.\n\nMatching these outcomes to the options:\n*   U.S. Net Exports: Increase\n*   Value of Dollar: Increase\n*   Value of Yen: Decrease\n\nThis corresponds to Option D.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": " holds specifically when $R$ is an integral domain.\n    *   Thus, Statement 2 is **False**.\n\n3.  **Conclusion:** Statement 1 is True, and Statement 2 is False. This corresponds to option C.\n\nAnswer: C"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": "describes a shortage of 1800 units (based on the $4.00 price point analysis).\n- Option C states: \"$4.15, shortage of 1800 units\".\n- This matches our findings for both part (a) and part (b).\n\nAnswer: C"
+    },
+    {
+      "gold": "G",
+      "parsed": "G",
+      "tail": "ulting in higher elasticity.\n\nTherefore, producers having more time to respond allows for greater changes in quantity supplied for a given price change, increasing the elasticity of supply.\n\nAnswer: G"
+    },
+    {
+      "gold": "I",
+      "parsed": "D",
+      "tail": ", but implies supersonic flow which is unlikely in a purely converging duct section without a diverging nozzle)\n\nGiven the physical context of choked flow, Option D is the correct solution.\n\nAnswer: D"
+    },
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": "}$$\n    $$New AFC = \\frac{\\$5,000}{12,500}$$\n\n4.  **Perform the division:**\n    $$\\frac{5,000}{12,500} = \\frac{50}{125} = \\frac{2}{5} = 0.40$$\n\nThe new average fixed cost is $0.40 per shoe.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "E",
+      "tail": "E actively exacerbates the condition of overfitting. Given the pairing of D and E, E is the intended answer representing the wrong direction of the primary variable (complexity).\n\nAnswer: E\n\nAnswer: E"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "lors.\n    *   Other options suggest color combinations (like blue/green or black/white) that do not match the MasterCard identity.\n4.  **Conclusion:** The correct colors are red and yellow.\n\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "l likely find for Connie under the UCC, provided the court determines that the predominant purpose of the contract was the sale of goods. Option B correctly articulates this legal standard.\n\nAnswer: B"
+    },
+    {
+      "gold": "H",
+      "parsed": "H",
+      "tail": "c{5}{15} $$\n$$ \\text{Sharpe Ratio} = \\frac{1}{3} \\approx 0.3333... $$\n\n**Step 5: Match with the provided options**\nThe calculated value is approximately 0.33, which corresponds to option H.\n\nAnswer: H"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": "$ (which is $3! = 6$):\n$$ S(9, 3) = \\frac{18150}{6} $$\n$$ S(9, 3) = 3025 $$\n\nThis represents the number of ways to partition the set of 9 people into 3 non-empty, indistinguishable subsets.\n\nAnswer: E"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "nition of corporate double taxation.\n*   Option J accurately describes the process of taxing earnings at the corporate level and then again at the personal level upon dividend distribution.\n\nAnswer: J"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "$$ \\text{Rate} = \\frac{360,000}{80,000} = 4.5 $$\n\n**Step 3: Match with Options**\nThe calculated rates are:\n*   Cost: 4.0\n*   Selling Price: 3.8\n*   Units: 4.5\n\nThis corresponds to Option J.\n\nAnswer: J"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "D, G, H, I, and J suggest dismissal or abstention, which are incorrect. Option E suggests a substantive outcome (uphold) that is likely incorrect given the discriminatory nature of the fee.\n\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "B. 1.414 ($\\sqrt{2}$)\nC. 3.000\nD. 2.235 ($\\sqrt{5}$)\nE. 3.141 ($\\pi$)\nF. 1.618 (Golden Ratio $\\phi$)\nG. 1.732 ($\\sqrt{3}$)\nH. 0.618 ($1/\\phi$)\nI. 1.000\nJ. 2.000\n\nThe value matches option B.\n\nAnswer: B"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": "l solution:\n$$v_C(t) = \\frac{3}{2} e^{-t} - \\frac{3}{2} e^{-3t}$$\n$$v_C(t) = \\frac{3}{2} (e^{-t} - e^{-3t}) \\, \\text{V}$$\n\nComparing this result with the given options, it matches Option E.\n\nAnswer: E"
+    },
+    {
+      "gold": "F",
+      "parsed": "F",
+      "tail": ". $1,000 + 8,000 + 90 + 6$ (Incorrect: $9,096$)\n    *   I. $10,000 + 8,000 + 100 + 6$ (Incorrect: $18,106$)\n\nOption F correctly breaks down every non-zero digit to its specific place value.\n\nAnswer: F"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": " context of the PPC model: the ability to consume beyond domestic production limits.\n\nTherefore, the statement that free trade allows nations to consume beyond their PPC is the correct one.\n\nAnswer: J"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "lovir is the definitive treatment.\n    *   **Interferon (J)** is not the standard of care for CMV.\n\nTherefore, the most appropriate next step is to begin specific antiviral therapy for CMV.\n\nAnswer: B"
+    },
+    {
+      "gold": "I",
+      "parsed": "I",
+      "tail": " pterygoid muscle** is the prime mover and is typically considered the most active muscle during this specific movement.\n\nTherefore, the Left lateral pterygoid muscle is the correct answer.\n\nAnswer: I"
+    }
+  ]
+}

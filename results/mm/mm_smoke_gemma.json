@@ -1,0 +1,10 @@
+{
+  "tag": "mm_smoke_gemma",
+  "model": "google/gemma-4-31b-it",
+  "mmmu_pro_acc": 87.5,
+  "mmmu_pro_n": 8,
+  "mmmu_pro_trunc": 0,
+  "mathvision_acc": 75.0,
+  "mathvision_n": 8,
+  "mathvision_trunc": 0
+}

@@ -1,0 +1,19 @@
+{
+  "tag": "q122_ptq3b_think_v2",
+  "model": "models/q122_ptq3b",
+  "think": true,
+  "budget": 32768,
+  "mmlu_pro_acc": 87.0,
+  "mmlu_pro_n": 200,
+  "mmlu_pro_trunc": 1,
+  "gpqa_acc": 80.8080808080808,
+  "gpqa_n": 198,
+  "gpqa_trunc": 13,
+  "gsm8k_acc": 98.5,
+  "gsm8k_n": 200,
+  "gsm8k_trunc": 9,
+  "humaneval_pass@1": 96.34146341463415,
+  "he_n": 164,
+  "he_trunc": 0,
+  "seconds": 2710.9587943553925
+}

@@ -1,0 +1,10 @@
+{
+  "tag": "q122clip_bbeh_bf",
+  "bench": "bbeh",
+  "model": "models/q122_ptq3b_clip",
+  "n": 100,
+  "acc": 51.0,
+  "n_force_closed": 19,
+  "still_unterminated": 0,
+  "think_cap": 28672
+}

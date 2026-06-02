@@ -1,0 +1,11 @@
+{
+  "tag": "q122clip_lcb64",
+  "model": "models/q122_ptq3b_clip",
+  "think": true,
+  "lcb_acc": 57.0,
+  "lcb_acc_finished": 75.71428571428571,
+  "lcb_n": 200,
+  "lcb_n_finished": 140,
+  "lcb_trunc": 60,
+  "seconds": 5982.329784154892
+}

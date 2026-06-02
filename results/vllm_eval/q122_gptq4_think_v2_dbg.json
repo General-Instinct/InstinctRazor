@@ -1,0 +1,104 @@
+{
+  "mmlu_pro": [
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": "n **Decreases**.\n\nMatching these changes to the given options:\n*   U.S. Net Exports: Increase\n*   Value of the Dollar: Increase\n*   Value of the Yen: Decrease\n\nThis corresponds to Option D.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": "   Since $1 \\neq 2$, the statement is false for this ring.\n*   Therefore, Statement 2 is **False**.\n\n**Conclusion:**\nStatement 1 is True.\nStatement 2 is False.\nThis corresponds to Option C.\n\nAnswer: C"
+    },
+    {
+      "gold": "C",
+      "parsed": "C",
+      "tail": "tion that states:\n1.  Equilibrium Price = $4.15\n2.  Condition at $4.00 = Shortage of 1800 units\n\n- **Option C** states: \"$4.15, shortage of 1800 units\". This matches our findings perfectly.\n\nAnswer: C"
+    },
+    {
+      "gold": "G",
+      "parsed": "G",
+      "tail": "d compared to time and capacity constraints.\n\nBased on this analysis, supply elasticity is typically greater when producers have more flexibility and time to adjust their production levels.\n\nAnswer: G"
+    },
+    {
+      "gold": "I",
+      "parsed": "I",
+      "tail": "prox 1.13\\text{ slugs/sec}$.\n\n**Conclusion:**\nThe velocity is approximately $1,460\\text{ fps}$ and the mass flow rate is approximately $1.13\\text{ slugs/sec}$. This corresponds to Option I.\n\nAnswer: I"
+    },
+    {
+      "gold": "D",
+      "parsed": "D",
+      "tail": "  *   $$AFC_2 = \\frac{\\$5,000}{12,500}$$\n\n4.  **Perform the Division:**\n    *   $$5,000 \\div 12,500 = 0.40$$\n\nSo, the new average fixed cost is $0.40 per shoe. This corresponds to option D.\n\nAnswer: D"
+    },
+    {
+      "gold": "C",
+      "parsed": "E",
+      "tail": "ing, whereas Option B is an evaluation protocol error. In multiple-choice questions regarding overfitting remedies, \"Increase model complexity\" is the canonical incorrect answer.\n\nAnswer: E\n\nAnswer: E"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "g, these circles are colored red and yellow (often described as a warm yellow or orange-yellow). Looking at the provided options, the pair that matches this description is \"red and yellow\".\n\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": "ion:** The trial court will apply the Predominate Purpose Test. If the court finds the goods were the main purpose, the UCC applies. Option B correctly identifies this condition.\n\nAnswer: B\n\nAnswer: B"
+    },
+    {
+      "gold": "H",
+      "parsed": "H",
+      "tail": " $$\n$$ \\text{Sharpe Ratio} = \\frac{5}{15} $$\n$$ \\text{Sharpe Ratio} = \\frac{1}{3} $$\n$$ \\text{Sharpe Ratio} \\approx 0.33 $$\n\nComparing this result to the given options, it matches Option H.\n\nAnswer: H"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": " [ 19683 - 3(512) + 3(1) ]$$\n$$S(9, 3) = \\frac{1}{6} [ 19683 - 1536 + 3 ]$$\n$$S(9, 3) = \\frac{1}{6} [ 18150 ]$$\n$$S(9, 3) = 3025$$\n\nThus, there are 3025 ways to divide the group.\n\nAnswer: E\n\nAnswer: E"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "al level.\n*   **J:** This option accurately describes the two stages of taxation (corporate level and personal level upon dividend distribution) that constitute the double taxation problem.\n\nAnswer: J"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "ults:**\n*   StockturnRate (at Cost) = 4.0\n*   StockturnRate (at selling price) = 3.8\n*   StockturnRate (in units) = 4.5\n\nComparing these results with the given options, they match Option J.\n\nAnswer: J"
+    },
+    {
+      "gold": "A",
+      "parsed": "A",
+      "tail": "tion, the plaintiff has standing, and there are no applicable bars to adjudication (such as exhaustion or abstention), the court must proceed to hear the constitutional claim on its merits.\n\nAnswer: A"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": " is approximately $1.41421356...$\nComparing this to the given options:\nA. 2.718\nB. 1.414\nC. 3.000\nD. 2.235\nE. 3.141\nF. 1.618\nG. 1.732\nH. 0.618\nI. 1.000\nJ. 2.000\n\nThe value matches Option B.\n\nAnswer: B"
+    },
+    {
+      "gold": "E",
+      "parsed": "E",
+      "tail": "l solution:\n$$v_C(t) = \\frac{3}{2} e^{-t} - \\frac{3}{2} e^{-3t}$$\n$$v_C(t) = \\frac{3}{2} (e^{-t} - e^{-3t}) \\, \\text{V}$$\n\nComparing this result with the given options, it matches Option E.\n\nAnswer: E"
+    },
+    {
+      "gold": "F",
+      "parsed": "F",
+      "tail": "H. $1,000 + 8,000 + 90 + 6 = 9,096$ (Incorrect)\n    *   I. $10,000 + 8,000 + 100 + 6 = 18,106$ (Incorrect)\n\n    Option F correctly represents the value of each digit in the number $18,096$.\n\nAnswer: F"
+    },
+    {
+      "gold": "J",
+      "parsed": "J",
+      "tail": "its domestic production possibilities.\n\nTherefore, the statement that best describes the relationship is that free trade enables consumption beyond the production limits defined by the PPC.\n\nAnswer: J"
+    },
+    {
+      "gold": "B",
+      "parsed": "B",
+      "tail": " adjunctive measure but is not the definitive treatment for CMV disease compared to antiviral therapy.\n\nTherefore, the most appropriate next step is to begin ganciclovir therapy.\n\nAnswer: B\n\nAnswer: B"
+    },
+    {
+      "gold": "I",
+      "parsed": "I",
+      "tail": "terygoid, the mandible cannot effectively move to the right side.\n5.  **Conclusion:** The muscle responsible for right lateral excursion is the **left lateral pterygoid muscle**.\n\nAnswer: I\n\nAnswer: I"
+    }
+  ]
+}

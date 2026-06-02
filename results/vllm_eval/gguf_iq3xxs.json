@@ -1,0 +1,16 @@
+{
+  "tag": "gguf_iq3xxs",
+  "tokenizer": "Qwen/Qwen3.5-122B-A10B",
+  "backend": "llama.cpp",
+  "budget": 32768,
+  "mmlu_pro_acc": 90.66666666666667,
+  "mmlu_pro_acc_finished": 90.66666666666667,
+  "mmlu_pro_n": 150,
+  "mmlu_pro_n_finished": 150,
+  "mmlu_pro_trunc": 0,
+  "gpqa_acc": 80.8080808080808,
+  "gpqa_acc_finished": 80.8080808080808,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 198,
+  "gpqa_trunc": 0
+}

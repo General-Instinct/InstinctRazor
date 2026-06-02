@@ -1,0 +1,21 @@
+{
+  "tag": "gemma4_a4b_ladder_32k",
+  "model": "google/gemma-4-26b-a4b-it",
+  "think": true,
+  "mmlu_pro_acc": 85.6,
+  "mmlu_pro_acc_finished": 87.09016393442623,
+  "mmlu_pro_n": 500,
+  "mmlu_pro_n_finished": 488,
+  "mmlu_pro_trunc": 12,
+  "gpqa_acc": 79.29292929292929,
+  "gpqa_acc_finished": 82.53968253968254,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 189,
+  "gpqa_trunc": 9,
+  "mmmlu_acc": 85.4,
+  "mmmlu_acc_finished": 85.4,
+  "mmmlu_n": 500,
+  "mmmlu_n_finished": 500,
+  "mmmlu_trunc": 0,
+  "seconds": 1551.1627233028412
+}

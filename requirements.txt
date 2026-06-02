@@ -1,0 +1,28 @@
+# moe-lowbit — EVAL / QUANTIZE environment (the headline path: quantize + eval).
+# This is the venv used by pipelines 00 (smoke), 01 (probe/quantize), 02 (eval),
+# and OPD phases A/B (opd_gen.py, opd_score.py). Python 3.12.
+#
+#   python3.12 -m venv vllm_venv && source vllm_venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Verified on: 4x NVIDIA H100 80GB HBM3, driver 580.105.08, CUDA 13.0.
+# vLLM pulls in its own torch; the versions below are what was actually installed
+# and used to produce every number in results/. Pin exactly to reproduce.
+
+torch==2.11.0
+transformers==5.9.0
+vllm==0.22.0
+accelerate==1.13.0
+datasets==4.8.5
+numpy==2.3.5
+pillow==12.2.0
+triton==3.6.0
+sentencepiece==0.2.1
+
+# vLLM 0.22 attention/sampling backend (this build uses FlashInfer, NOT flash-attn/xformers):
+flashinfer-python==0.6.11.post2
+flashinfer-cubin==0.6.11.post2
+
+# NOTE: the OPD *training* phase (distill.sh phase C, opd_train_fsdp.py) runs under a SEPARATE
+# venv with torch 2.7 + flash-linear-attention (FSDP2 needs the Gated-DeltaNet kernels and
+# a torch that does not conflict with vLLM). See requirements-train.txt and docs/MOE_PIPELINE.md.
