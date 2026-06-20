@@ -326,12 +326,34 @@ upgrade at the same footprint; the bigger wins remain truncation recovery (OPD /
 extra bit. (n=150/198/120 → ±several pt CI; the `fin` trend is small but consistent, overall-acc deltas are
 within noise.) Reproduce: `python src/quant/moe_quant_method.py --model Qwen/Qwen3.6-35B-A3B --method awq --out models/q36_awq3b`.
 
-**Ecosystem checkpoints.** QuantTrio's published **AWQ-4bit** (above) loads in vLLM 0.22 and is a 4-bit,
-bf16-backbone recipe (~21 GB) — near-teacher overall acc, but not footprint-matched to our 3-bit. **ParoQuant**
-(z-lab, ICLR 2026, INT4 pairwise-rotation, paper claims +2.4% over AWQ on reasoning) could **NOT be
-benchmarked**: installing their exact stack (`paroquant[vllm]` + vllm 0.19.1 cu130) and loading
-`z-lab/Qwen3.6-35B-A3B-PARO` fails at weight load with `KeyError: layers.0.mlp.experts.w2_qweight` (a
-fused-MoE quantized-expert mapping bug in their qwen3_5 loader) at both TP=1 and TP=4 — the documented
-`vllm serve` path shares the same `load_weights`, so it fails identically. Their +2.4%-over-AWQ claim is thus
-unverified on our harness; if it holds, ParoQuant-4bit would sit just above QuantTrio-AWQ-4bit (still a 4-bit,
-larger-footprint point than our int3).
+**Ecosystem checkpoints (published 4-bit methods).** Two community/SOTA quantizations of Qwen3.6-35B-A3B,
+same harness, vs ours:
+
+| model | bits / footprint | MMLU-Pro | GPQA | MATH-500 |
+|-------|------------------|----------|------|----------|
+| teacher BF16 | 16b / ~70 GB | 88.0 | 84.3 | 90.0 |
+| **ParoQuant** (z-lab, rotation) | 4b / ~17 GB | 85.3 | 81.8 | 90.0 |
+| QuantTrio **AWQ** | 4b / ~21 GB | 87.3 | 77.3 | 86.7 |
+| our **awq**-int3 | 3b / ~13.5 GB | 80.0 | 68.2 | 86.7 |
+| our **clip**-int3 | 3b / ~13.5 GB | 76.7 | 73.2 | 83.3 |
+
+- **ParoQuant required reconstruction to run on CUDA at all.** z-lab's CUDA backends (vllm + transformers)
+  only quantize `nn.Linear` and DON'T wire up the *fused* MoE experts — the SAME blind spot this framework
+  was built to fix. `paroquant[vllm]` loading `z-lab/Qwen3.6-35B-A3B-PARO` fails with
+  `KeyError: layers.0.mlp.experts.w2_qweight` (no FusedMoEMethod; the transformers HfQuantizer skips the
+  fused `Qwen3_5MoeExperts`); only their MLX (Apple) backend handles MoE. We benchmarked it by
+  **reconstructing its effective bf16 weights** (`src/quant/paro_dequant.py`): ParoQuant forward is
+  `y = AWQ_GEMM(rotate(x)) = x @ (M @ W_dq)` with `M=rotate(I)` a fixed linear map, so `W_eff =
+  RotateQuantizedLinear.forward(I)` reproduces it exactly (validated ~8e-4 rel err). Folded all 130 backbone
+  + 30,720 expert linears → standard bf16 ckpt → eval in normal vLLM (capability ceiling, same methodology
+  as our clip/awq).
+- **ParoQuant's "+2.4% over AWQ on reasoning" reproduces here.** vs QuantTrio-AWQ-4bit: PARO +4.5 GPQA,
+  +3.3 MATH-500 (the reasoning axes), −2.0 MMLU-Pro; avg +1.9, reasoning-led. And PARO does it at a SMALLER
+  footprint (~17 GB; it also quantizes attn/DeltaNet, vs AWQ's bf16 backbone ~21 GB) — a genuinely strong
+  4-bit result, near-lossless vs teacher (−2.7 / −2.5 / 0.0).
+- **Where we stand.** Our int3 (~13.5 GB) trails the SOTA 4-bit ParoQuant by ~+7–9 pt — but that is +1 bit
+  plus learned rotations (and their kernels/toolchain). At a *matched* bit-width the gap collapses (F13
+  above: our clip ≈ AWQ within ~5%). So the honest read: our recipe is a simple, calibration-free, smaller
+  3-bit point; closing to ParoQuant means adopting **rotation + the 4th bit**, not just a better PTQ search.
+  The framework's value (and the reason we could even run PARO) is the model-general fused-MoE handling that
+  z-lab's own CUDA stack lacks.

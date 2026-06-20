@@ -1,0 +1,21 @@
+{
+  "tag": "q36_paro",
+  "model": "models/q36_paro_bf16",
+  "think": true,
+  "mmlu_pro_acc": 85.33333333333333,
+  "mmlu_pro_acc_finished": 87.07482993197279,
+  "mmlu_pro_n": 150,
+  "mmlu_pro_n_finished": 147,
+  "mmlu_pro_trunc": 3,
+  "gpqa_acc": 81.81818181818181,
+  "gpqa_acc_finished": 86.17021276595744,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 188,
+  "gpqa_trunc": 10,
+  "math500_acc": 90.0,
+  "math500_acc_finished": 91.45299145299145,
+  "math500_n": 120,
+  "math500_n_finished": 117,
+  "math500_trunc": 3,
+  "seconds": 5423.3977818489075
+}
