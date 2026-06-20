@@ -300,3 +300,28 @@ reconstruction error, not capability — per F9 a 5–25% per-expert NMSE differ
 accuracy (expert-local error reduction did not recover capability). A full capability A/B (build an
 AWQ-quantized checkpoint and eval) is the definitive test and is cheap to add; the reconstruction parity
 above already predicts a tie. Reproduce: `python src/quant/moe_compare.py --model Qwen/Qwen3.6-35B-A3B`.
+
+**Capability A/B (the definitive test, now run).** Built a full Qwen3.6-35B-A3B checkpoint with experts
+quantized by AWQ instead of clip-search — same int3 / group-128 / int4-backbone / protection, so it is
+**footprint-matched** to the shipped clip (~13.5 GB). Same harness, 64k (`src/quant/moe_quant_method.py`;
+`results/vllm_eval/q36_awq3b.json`):
+
+| model (footprint) | MMLU-Pro acc/fin | GPQA acc/fin | MATH-500 acc/fin |
+|-------------------|------------------|--------------|------------------|
+| clip-int3 ours (~13.5 GB) | 76.7 / 83.1 | 73.2 / 86.5 | 83.3 / 90.5 |
+| **awq-int3 ours (~13.5 GB)** | 80.0 / 84.9 | 68.2 / 87.2 | 86.7 / 93.7 |
+| QuantTrio awq-**4bit** (~21 GB, bf16 backbone) | 87.3 / 90.3 | 77.3 / 86.4 | 86.7 / 91.2 |
+
+**Verdict.** On **capability-among-finished** (`fin`, the truncation-free signal) AWQ-experts are
+**consistently a hair better** than clip-experts at int3: +1.8 (MMLU-Pro), +0.7 (GPQA), +3.2 (MATH-500),
+avg ~+2. On the **headline overall acc** it's a **wash** (clip 77.7 vs awq 78.3 avg) — AWQ wins MMLU-Pro
+(+3.3) and MATH-500 (+3.4) but loses GPQA (−5.0), and that GPQA swing is a *truncation* artifact (awq tr=49
+vs clip tr=43, while awq's `fin` is actually higher). So: **AWQ's activation-awareness buys a small, real
+capability edge (~2 pt fin) that the held-out NMSE (~5%) predicted** — but it costs a calibration pass; our
+clip-search is calibration-free (weights only) and within a couple points. The **dominant lever for the
+overall-acc gap is truncation/bits, not the quant algorithm**: the 4-bit, bf16-backbone QuantTrio reaches
+near-teacher overall acc mostly by cutting truncation (tr 5/21/7 vs our 11/49/9) at ~1.5× the footprint.
+**Actionable:** swapping the shipped expert quant from clip-search to AWQ is a cheap, real (~+2 fin)
+upgrade at the same footprint; the bigger wins remain truncation recovery (OPD / larger budget) and the
+extra bit. (n=150/198/120 → ±several pt CI; the `fin` trend is small but consistent, overall-acc deltas are
+within noise.) Reproduce: `python src/quant/moe_quant_method.py --model Qwen/Qwen3.6-35B-A3B --method awq --out models/q36_awq3b`.

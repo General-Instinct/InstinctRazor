@@ -1,0 +1,21 @@
+{
+  "tag": "q36_awq4_quanttrio",
+  "model": "QuantTrio/Qwen3.6-35B-A3B-AWQ",
+  "think": true,
+  "mmlu_pro_acc": 87.33333333333333,
+  "mmlu_pro_acc_finished": 90.34482758620689,
+  "mmlu_pro_n": 150,
+  "mmlu_pro_n_finished": 145,
+  "mmlu_pro_trunc": 5,
+  "gpqa_acc": 77.27272727272727,
+  "gpqa_acc_finished": 86.44067796610169,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 177,
+  "gpqa_trunc": 21,
+  "math500_acc": 86.66666666666667,
+  "math500_acc_finished": 91.15044247787611,
+  "math500_n": 120,
+  "math500_n_finished": 113,
+  "math500_trunc": 7,
+  "seconds": 5461.061559438705
+}

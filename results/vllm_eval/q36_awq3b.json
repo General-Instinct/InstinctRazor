@@ -1,0 +1,21 @@
+{
+  "tag": "q36_awq3b",
+  "model": "models/q36_awq3b",
+  "think": true,
+  "mmlu_pro_acc": 80.0,
+  "mmlu_pro_acc_finished": 84.89208633093526,
+  "mmlu_pro_n": 150,
+  "mmlu_pro_n_finished": 139,
+  "mmlu_pro_trunc": 11,
+  "gpqa_acc": 68.18181818181819,
+  "gpqa_acc_finished": 87.24832214765101,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 149,
+  "gpqa_trunc": 49,
+  "math500_acc": 86.66666666666667,
+  "math500_acc_finished": 93.69369369369369,
+  "math500_n": 120,
+  "math500_n_finished": 111,
+  "math500_trunc": 9,
+  "seconds": 8067.006492614746
+}
