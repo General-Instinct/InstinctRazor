@@ -269,3 +269,34 @@ and/or a larger generation budget matter more here than at 10B-active; (c) the c
 generalization itself was validated independently on **OLMoE-1B-7B** (text-only, non-Qwen, fused experts
 under transformers 5.x) — quantized to 3.07 eff bits where the original Qwen-only code covered 0% of its
 experts (`pipelines/smoke_moe.sh`, `tests/test_adapter_invariance.py`).
+
+---
+
+## F13 — Our clip-search int3 is competitive with AWQ/GPTQ; GPTQ overfits calibration at int3
+
+Direct apples-to-apples vs the activation-aware baselines (`src/quant/moe_compare.py`): per-expert
+**end-to-end output NMSE on HELD-OUT activations** (AWQ/GPTQ calibrate on one half of the dispatched
+tokens, NMSE measured on the other half — so calibration-overfitting is penalized, as it should be).
+All at int3 / group-128, only the algorithm varies. **Qwen3.6-35B-A3B** (160 experts × 5 layers;
+`results/quant_compare_q36.json`); OLMoE-1B-7B agrees:
+
+| method | NMSE (Qwen3.6) | × ours_clip | notes |
+|--------|----------------|-------------|-------|
+| awq (activation-aware + RTN) | 0.0954 | 0.95× | marginally best; needs calib |
+| **ours_clip (sym int + MSE clip-search)** | **0.1004** | 1.00× | **calibration-free (weights only)** |
+| rtn_asym (asym uint RTN) | 0.1065 | 1.06× | calibration-free baseline |
+| gptq (Hessian error-comp) | 0.1231 | 1.23× | **worse than ours** — overfits the per-expert calib set |
+| ours_absmax (sym int, no clip) | 0.1786 | 1.78× | the clip-search gain is real |
+
+**Findings.** (1) Our calibration-free clip-search int3 is **within ~5% of the best method (AWQ)** and
+**beats RTN and GPTQ** on held-out reconstruction. (2) **GPTQ does NOT help at int3** on this load-balanced
+MoE — its Hessian error-compensation minimizes error on the (small, ~128-token) per-expert calibration set
+but **generalizes worse** (1.23× ours on Qwen3.6, 1.05× on OLMoE); the apparent in-sample GPTQ win (~27× on
+the same tokens it calibrated on) is almost entirely overfitting. (3) The **dominant lever is the clip-search
+itself** (1.78× over plain absmax), not asym-vs-sym (rtn ≈ ours) or calibration (awq only +5%). This extends
+F1 (near-lossless is not method-specific at ~3b) with a sharper claim: at int3 the calibration-based methods
+have **no meaningful generalization edge**, and GPTQ can actively hurt. **Caveat (F9):** this is
+reconstruction error, not capability — per F9 a 5–25% per-expert NMSE difference need not move downstream
+accuracy (expert-local error reduction did not recover capability). A full capability A/B (build an
+AWQ-quantized checkpoint and eval) is the definitive test and is cheap to add; the reconstruction parity
+above already predicts a tie. Reproduce: `python src/quant/moe_compare.py --model Qwen/Qwen3.6-35B-A3B`.
