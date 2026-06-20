@@ -17,6 +17,14 @@ def _is_experts(m):
     """Detect Qwen3_5MoeExperts by duck-typing (robust to FSDP2 fully_shard __class__ swap)."""
     return hasattr(m, "gate_up_proj") and hasattr(m, "down_proj") and hasattr(m, "num_experts")
 
+def _assert_opd_supported():
+    """OPD/expert-LoRA monkeypatches Qwen3_5MoeExperts.forward and FSDP-wraps Qwen3_5Moe* classes, so it
+    is Qwen3.5/3.6-only. Other MoE families (incl. fused OLMoE) are a non-goal — see docs/OPD_INTEGRATION.md."""
+    if not MQ.active_adapter().supports_opd:
+        raise NotImplementedError(
+            "expert-LoRA / OPD distillation is supported only for Qwen3.5/3.6 (it monkeypatches "
+            "Qwen3_5MoeExperts). The active model's adapter does not support OPD — see docs/OPD_INTEGRATION.md.")
+
 class ExpertLoRA(nn.Module):
     """Per-expert low-rank adapters for one Qwen3_5MoeExperts module."""
     def __init__(self, E, hidden, inter, rank, dtype, device):
@@ -62,6 +70,7 @@ def _patched_forward(self, hidden_states, top_k_index, top_k_weights):
 
 def attach_expert_lora(model, bits=3.0, group=128, rank=8, scale=2.0, static_loop=False):
     """Freeze base; attach per-expert LoRA + STE-quant to every Qwen3_5MoeExperts; return trainable params."""
+    _assert_opd_supported()
     for p in model.parameters():
         p.requires_grad_(False)
     trainable = []
@@ -108,6 +117,7 @@ def attach_expert_lora_fast(model, bits=3.0, group=128, rank=16, scale=2.0, clip
     """FAST QLoRA: bake fakequant(experts) in-place ONCE (with clip-search for quality), freeze, then train
     output-space per-expert LoRA. No per-step quantization -> 2-4x faster, memory-neutral, standard QLoRA.
     Tiny train/deploy gap (re-quantize at merge); verify after."""
+    _assert_opd_supported()
     for p in model.parameters():
         p.requires_grad_(False)
     MQ.set_clip_search(clip_steps)

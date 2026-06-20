@@ -15,7 +15,7 @@ the ~6% non-expert params kept at a high floor (nearly free). See SURVEY_MOE.md 
 import re, json
 import torch
 import numpy as np
-from moe_quant import AllocSpec, iter_expert_tensors, iter_quant_linears, VISUAL_RE
+from moe_quant import AllocSpec, iter_expert_tensors, iter_quant_linears, VISUAL_RE, active_adapter
 
 EXPERT_TAG_SETS = {
     "t4":   [1.58, 4.0],          # ternary / int4 (2-level, matches prior dense study)
@@ -28,6 +28,7 @@ EXPERT_TAG_SETS = {
 def compute_weight_stats(model):
     """Per-(layer,expert,block) Frobenius norm of expert weights (data-free salience).
     Returns dict layer -> {'gate_up': tensor[E], 'down': tensor[E]} and router-row norms."""
+    ad = active_adapter()
     wfro = {}
     rnorm = {}
     for n, p in iter_expert_tensors(model):
@@ -41,7 +42,7 @@ def compute_weight_stats(model):
             fro[e] = p[e].detach().float().norm()
         wfro.setdefault(L, {})[blk] = fro.cpu()
     for n, m in model.named_modules():
-        if type(m).__name__ == "Qwen3_5MoeTopKRouter":
+        if ad.is_router(m) and hasattr(m, "weight"):
             L = int(re.search(r"layers\.(\d+)\.", n).group(1))
             rnorm[L] = m.weight.detach().float().norm(dim=1).cpu()  # [E] row norms
     return {"wfro": wfro, "rnorm": rnorm}
@@ -107,7 +108,8 @@ def build_spec(model, probe, strategy="composite", expert_bits=3.0, tagset="t4",
                embed_bits=4.0, group=128, global_rank=True, seed=0, precomputed_stats=None):
     """Build an AllocSpec. expert_bits = target average bits over routed experts.
        protect=True keeps non-expert path at high floors (the ~6% carve-out)."""
-    cfg = model.config.text_config
+    ad = active_adapter()
+    cfg = ad.text_config(model.config)
     E, nL = cfg.num_experts, cfg.num_hidden_layers
     stats = precomputed_stats or compute_weight_stats(model)
     imp, extra = expert_importance(stats, probe, strategy, nL, E, seed=seed)
@@ -127,26 +129,19 @@ def build_spec(model, probe, strategy="composite", expert_bits=3.0, tagset="t4",
 
     for L in range(nL):
         t = torch.tensor(tagflat[L], dtype=torch.float32)
-        expert_bits_map[f"model.language_model.layers.{L}.mlp.experts.gate_up_proj"] = t.clone()
-        expert_bits_map[f"model.language_model.layers.{L}.mlp.experts.down_proj"] = t.clone()
+        gu, dn = ad.expert_tensor_names(L)
+        expert_bits_map[gu] = t.clone()
+        expert_bits_map[dn] = t.clone()
 
-    # non-expert linears
+    # non-expert linears, classified by the adapter (ssm_out/in get a floor; tiny gate projs kept high)
+    cat_bits = {"shared_expert": shared_bits, "attn": attn_bits, "ssm": ssm_bits,
+                "embed": embed_bits, "expert": expert_bits, "backbone": 4.0}
     linear_bits = {}
     for n, m in iter_quant_linears(model):
         if not protect:
             linear_bits[n] = 4.0
             continue
-        if ".shared_expert" in n:
-            linear_bits[n] = shared_bits
-        elif ".self_attn." in n:
-            linear_bits[n] = attn_bits
-        elif ".linear_attn." in n:
-            # ssm_out/in get a floor; tiny gate proj (in_proj_a/b) kept high too
-            linear_bits[n] = ssm_bits
-        elif n.endswith("embed_tokens") or n.endswith("lm_head"):
-            linear_bits[n] = embed_bits
-        else:
-            linear_bits[n] = 4.0
+        linear_bits[n] = cat_bits.get(ad.classify_linear(n), 4.0)
     spec = AllocSpec(expert_bits=expert_bits_map, linear_bits=linear_bits, group=group,
                      default_linear_bits=4.0,
                      meta={"strategy": strategy, "expert_bits_target": expert_bits, "tagset": tagset,

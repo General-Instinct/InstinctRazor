@@ -147,3 +147,46 @@ characterized-and-recoverable (clip already *beats* A4B among-finished); P1's de
 P2/P3 verdicts are unaffected.
 **Deferred future work (not blockers):** accept the characterized gap, or undertake the EP/TP rewrite of the OPD
 trainer. See the KNOWN BLOCKER comment in `src/distill/opd_train_fsdp.py`.
+
+---
+
+## Generalization (multi-model): Qwen3.6-35B-A3B
+
+First target beyond the 122B, run through the SAME framework via the `model_type`-keyed `ModelAdapter`
+(`src/quant/model_adapters.py`). Qwen3.6-35B-A3B reports `model_type: qwen3_5_moe` (fused experts, hybrid
+Gated-DeltaNet, shared expert, multimodal, vocab 248320), so it needed **only a new config**
+(`configs/qwen36_35b.env`) — no model-specific code. Quantized with the shipped uniform recipe (int3
+experts + int4 backbone + 16-step MSE clip): `quant_save` reported **80 expert tensors + 352 linears,
+effective_bits 3.070 → ~13.5 GB packed** over 35.1B params (the corrected `effective_bits` accounting; the
+old 16b-expert over-count was fixed in this work). Dequant-bf16 ckpt: `models/q36_ptq3b_clip`.
+
+Eval: `src/eval/vllm_eval8.py` (vLLM 0.22, TP=4, thinking, temp 0.6/top_p 0.95/top_k 20, 64k budget) on
+**8× A100-80GB** (teacher GPUs 0-3, clip GPUs 4-7, concurrent). Raw JSONs:
+`results/vllm_eval/q36_teacher.json`, `results/vllm_eval/q36_clip.json`.
+
+`acc` = overall (truncation = wrong); `fin` = accuracy among finished generations; `tr` = truncated count.
+
+| Benchmark | teacher BF16 (~70 GB)  acc/fin/tr | **clip int3 (~13.5 GB)** acc/fin/tr | Δacc | Δfin | official |
+|-----------|-----------------------------------|--------------------------------------|------|------|----------|
+| MMLU-Pro (n=150)        | 88.0 / 88.0 / 0  | 76.7 / 83.1 / 14 | −11.3 | −4.9 | 85.2 |
+| GPQA-Diamond (n=198)    | 84.3 / 88.8 / 11 | 73.2 / **86.5** / 43 | −11.1 | −2.3 | 86.0 |
+| MMMLU (n=150)           | 84.0 / 84.0 / 0  | 79.3 / 81.4 / 10 | −4.7  | −2.6 | — |
+| MATH-500 (n=120)        | 90.0 / 90.8 / 1  | 83.3 / **90.5** / 15 | −6.7 | −0.3 | — |
+| LiveCodeBench-v6 (n=200)| 63.0 / 71.8 / 30 | 52.5 / **72.0** / 82 | −10.5 | +0.2 | 80.4 |
+
+**Validation gate (teacher vs official):** MMLU-Pro 88.0 vs 85.2 (+2.8, within n=150 noise), GPQA 84.3 vs
+86.0 (−1.7, gated ✓); LCB 63.0 vs 80.4 is the documented harness under-report (deltas valid, absolutes not
+vendor-exact — same caveat as the 122B LCB rows). The card recommends temp 1.0 for Qwen3.6; we used 0.6 (the
+framework's same-harness protocol) — irrelevant to the teacher-vs-clip delta since both use 0.6.
+
+**Finding (does uniform-int3 hold at 3B-active?):** **Capability is largely preserved; the gap is
+truncation.** `fin` (capability among finished generations) barely moves — GPQA −2.3, MATH-500 −0.3, LCB
++0.2 — so int3 does NOT collapse the model's reasoning. But truncation rises sharply (GPQA 6%→22%, LCB
+15%→41%, MATH 1%→13%): the quantized 3B-active model is markedly more token-inefficient, so overall `acc`
+(truncation = wrong) drops 5–11 pt. Same mechanism as the 122B (gaps concentrated in truncation, not
+capability degradation) but **more pronounced at 3B-active than at 10B-active** — fewer active params ⇒ less
+headroom to absorb per-expert quant error ⇒ longer, less-efficient reasoning. Implication: at smaller
+active-param scale the optional OPD truncation-recovery (`docs/OPD_INTEGRATION.md`) matters more, and/or a
+larger token budget recovers much of the `acc` gap. (Reproduce: `bash pipelines/quantize.sh` after
+`source configs/qwen36_35b.env`, then `pipelines/eval.sh --model models/q36_ptq3b_clip --tag q36_clip
+--benchmarks mmlu_pro,gpqa,mmmlu,lcb,math500 --budget 64k`.)

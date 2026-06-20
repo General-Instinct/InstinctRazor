@@ -63,20 +63,19 @@ def main():
     out = args.out or f"results/moe_probe_{args.tag}.json"
     os.makedirs("results", exist_ok=True)
 
-    from transformers import AutoModelForImageTextToText, AutoProcessor
+    import model_adapters as MA
+    from transformers import AutoProcessor
     n = torch.cuda.device_count()
     print(f"[probe] loading {args.model} across {n} GPUs ...", flush=True)
     t0 = time.time()
-    model = AutoModelForImageTextToText.from_pretrained(
-        args.model, dtype=torch.bfloat16, device_map="auto",
-        max_memory={i: f"{args.max_mem_gib}GiB" for i in range(n)}, trust_remote_code=True).eval()
-    print(f"[probe] loaded in {time.time()-t0:.0f}s", flush=True)
+    model, adapter = MA.load_model(args.model, max_mem_gib=args.max_mem_gib)
+    print(f"[probe] loaded ({type(adapter).__name__}) in {time.time()-t0:.0f}s", flush=True)
     proc = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
     tok = proc.tokenizer if hasattr(proc, "tokenizer") else proc
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
-    cfg = model.config.text_config
+    cfg = adapter.text_config(model.config)
     E = cfg.num_experts
     nL = cfg.num_hidden_layers
     freq = torch.zeros(nL, E, dtype=torch.float64)
@@ -89,7 +88,7 @@ def main():
     def make_hook(L):
         def hook(mod, inp, out):
             hs = inp[0]                              # (tokens, hidden)
-            router_logits, router_scores, router_indices = out
+            router_scores, router_indices = adapter.read_router_output(out)
             idx = router_indices.detach().reshape(-1).to("cpu")            # (tokens*topk)
             sc = router_scores.detach().float().reshape(-1).to("cpu")      # (tokens*topk)
             tn = hs.detach().float().norm(dim=-1)                          # (tokens,)
@@ -100,7 +99,7 @@ def main():
             asal[L].index_add_(0, idx, tn_rep.double())
         return hook
     for name, mod in model.named_modules():
-        if type(mod).__name__ == "Qwen3_5MoeTopKRouter":
+        if adapter.is_router(mod):
             L = int(re.search(r"layers\.(\d+)\.", name).group(1))
             hooks.append(mod.register_forward_hook(make_hook(L)))
     print(f"[probe] hooked {len(hooks)} routers (E={E}, layers={nL})", flush=True)

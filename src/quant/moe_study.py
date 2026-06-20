@@ -23,16 +23,15 @@ import moe_eval as EV
 import moe_quant as Q
 import moe_alloc as A
 import moe_probe as P
+import model_adapters as MA
 
 OUTDIR = "results/study"
 _MAXMEM = 66
 
 def load_model(model_id, max_mem):
-    from transformers import AutoModelForImageTextToText
-    n = torch.cuda.device_count()
-    m = AutoModelForImageTextToText.from_pretrained(
-        model_id, dtype=torch.bfloat16, device_map="auto",
-        max_memory={i: f"{max_mem}GiB" for i in range(n)}, trust_remote_code=True).eval()
+    # Delegates to the model adapter, which picks the AutoModel class and sets moe_quant's active
+    # adapter so the iterators / classification walk this model correctly.
+    m, _ = MA.load_model(model_id, max_mem_gib=max_mem)
     return m
 
 def _free():
@@ -90,7 +89,7 @@ def main():
     print(f"[study] setup-load {args.model} ...", flush=True); t0 = time.time()
     model = load_model(args.model, mm)
     print(f"[study] loaded in {time.time()-t0:.0f}s", flush=True)
-    cfg = model.config.text_config
+    cfg = Q.active_adapter().text_config(model.config)
     E, nL = cfg.num_experts, cfg.num_hidden_layers
     print("[study] probing routing stats ...", flush=True)
     probe = run_probe(model, tok, args.probe_n, args.calib_len, nL, E)
@@ -166,16 +165,16 @@ def build_spec_from(s, model, probe, stats):
                         seed=s.get("seed", 0), precomputed_stats=stats)
 
 def _uniform_int3_spec(model):
-    cfg = model.config.text_config; E, nL = cfg.num_experts, cfg.num_hidden_layers
+    ad = Q.active_adapter()
+    cfg = ad.text_config(model.config); E, nL = cfg.num_experts, cfg.num_hidden_layers
     eb = {}
     for L in range(nL):
         t = torch.full((E,), 3.0)
-        eb[f"model.language_model.layers.{L}.mlp.experts.gate_up_proj"] = t.clone()
-        eb[f"model.language_model.layers.{L}.mlp.experts.down_proj"] = t.clone()
+        gu, dn = ad.expert_tensor_names(L)
+        eb[gu] = t.clone(); eb[dn] = t.clone()
     lb = {}
     for n, m in Q.iter_quant_linears(model):
-        if ".shared_expert" in n: lb[n] = 8.0
-        else: lb[n] = 4.0
+        lb[n] = 8.0 if ad.classify_linear(n) == "shared_expert" else 4.0
     return Q.AllocSpec(expert_bits=eb, linear_bits=lb, default_linear_bits=4.0,
                        meta={"strategy": "uniform_int3", "expert_bits_target": 3.0, "protect": True})
 
@@ -184,18 +183,20 @@ def _uniform_int3_spec(model):
 def run_probe(model, tok, n_seq, seqlen, nL, E):
     freq = torch.zeros(nL, E, dtype=torch.float64); wmass = torch.zeros(nL, E, dtype=torch.float64)
     asal = torch.zeros(nL, E, dtype=torch.float64)
+    ad = Q.active_adapter()
     hooks = []
     def mk(L):
         def hook(mod, inp, out):
-            hs = inp[0]; _, sc, idx = out
+            hs = inp[0]; sc, idx = ad.read_router_output(out)
+            k = idx.shape[-1]
             idx = idx.detach().reshape(-1).cpu(); sc = sc.detach().float().reshape(-1).cpu()
-            tn = hs.detach().float().norm(dim=-1); k = out[2].shape[-1]
+            tn = hs.detach().float().norm(dim=-1)
             tnr = tn.unsqueeze(-1).expand(-1, k).reshape(-1).cpu()
             freq[L].index_add_(0, idx, torch.ones_like(sc, dtype=torch.float64))
             wmass[L].index_add_(0, idx, sc.double()); asal[L].index_add_(0, idx, tnr.double())
         return hook
     for name, mod in model.named_modules():
-        if type(mod).__name__ == "Qwen3_5MoeTopKRouter":
+        if ad.is_router(mod):
             L = int(re.search(r"layers\.(\d+)\.", name).group(1)); hooks.append(mod.register_forward_hook(mk(L)))
     seqs = P.build_calib(n_seq, seqlen, tok); dev = next(model.parameters()).device
     for i, ids in enumerate(seqs):

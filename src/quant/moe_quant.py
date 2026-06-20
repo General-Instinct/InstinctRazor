@@ -97,25 +97,35 @@ def ste_quant(w, tag, group=128):
     return _STE.apply(w, tag, group)
 
 # ----------------------------------------------------------------------------- model walking
+# Model-specific walking (which params are experts vs backbone linears vs routers, multimodal vs
+# text-only) is delegated to a ModelAdapter (see model_adapters.py). The module-level functions below
+# are thin shims over the *active* adapter, so existing imports (`from moe_quant import
+# iter_expert_tensors`) keep working unchanged. The active adapter lazily defaults to the Qwen3.5/3.6
+# (fused, multimodal) behavior, so any path that does not call model_adapters.load_model() behaves
+# exactly as before.
+_ACTIVE_ADAPTER = None
+
+def set_active_adapter(adapter):
+    """Set the model adapter used by the module-level iterator shims (called by load_model)."""
+    global _ACTIVE_ADAPTER
+    _ACTIVE_ADAPTER = adapter
+
+def active_adapter():
+    """The active adapter, lazily defaulting to the Qwen3.5/3.6 (fused, multimodal) adapter."""
+    global _ACTIVE_ADAPTER
+    if _ACTIVE_ADAPTER is None:
+        import model_adapters
+        _ACTIVE_ADAPTER = model_adapters.default_adapter()
+    return _ACTIVE_ADAPTER
+
 def iter_expert_tensors(model):
-    """Yield (name, param) for fused expert weight tensors [E, *, *]."""
-    for n, p in model.named_parameters():
-        if VISUAL_RE.search(n):
-            continue
-        if n.endswith("experts.gate_up_proj") or n.endswith("experts.down_proj"):
-            yield n, p
+    """Yield (name, param) for fused expert weight tensors [E, *, *] (empty for separate-expert models)."""
+    yield from active_adapter().iter_expert_tensors(model)
 
 def iter_quant_linears(model, include_embed=True):
-    """Yield (name, module) for ordinary nn.Linear weights we quantize (non-expert, non-visual).
-    Covers attn (self_attn/linear_attn), shared_expert, shared_expert_gate, lm_head. Router (gate)
-    is a TopKRouter (handled separately). Embedding handled via include_embed."""
-    for n, m in model.named_modules():
-        if VISUAL_RE.search(n):
-            continue
-        if isinstance(m, nn.Linear) and ".experts." not in n:
-            yield n, m
-        elif include_embed and isinstance(m, nn.Embedding) and "language_model" in n:
-            yield n, m
+    """Yield (name, module) for nn.Linear/nn.Embedding weights we quantize, per the active adapter.
+    For separate-expert models this also yields the per-expert Linears (tagged 'expert' by alloc)."""
+    yield from active_adapter().iter_quant_linears(model, include_embed=include_embed)
 
 def layer_idx_of(name):
     mobj = re.search(r"layers\.(\d+)\.", name)
@@ -190,8 +200,12 @@ def effective_bits(model, spec: AllocSpec):
             num += (bits * per).sum().item(); den += p.numel()
             expert_num += (bits * per).sum().item(); expert_den += p.numel()
         else:
-            num += 16 * p.numel(); den += p.numel()
-            expert_num += 16 * p.numel(); expert_den += p.numel()
+            # match apply_ptq: experts absent from expert_bits use default_expert_bits
+            # (else stay at 16b/bf16). Previously hardcoded 16 here, which over-counted the
+            # flat quant_save recipe's footprint (~15b instead of ~3b) — see clip_122b.env.
+            b = float(spec.default_expert_bits) if spec.default_expert_bits is not None else 16.0
+            num += b * p.numel(); den += p.numel()
+            expert_num += b * p.numel(); expert_den += p.numel()
     for n, m in iter_quant_linears(model):
         w = m.weight
         tag = spec.linear_tag(n)

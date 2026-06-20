@@ -239,3 +239,33 @@ near-lossless and beats EVERY 2.0b method incl. HQQ on every axis. Pushing to 2.
 QAD buys ≤5 GB over the near-lossless 2.5b point — poor cost/benefit. The remaining opportunity is "deploy at
 2.5b", not "recover 2.0b". (If sub-2.5b were ever required, global forward-KL QAD — not better PTQ, not local
 recon — is the only lever, at significant memory-engineering cost.)
+
+---
+
+## F12 — Uniform-int3 generalizes across active-param scale, but the truncation penalty grows as A shrinks
+
+Ran the shipped uniform recipe (int3 experts + int4 backbone + MSE-clip, ~3.07 eff bits) on
+**Qwen3.6-35B-A3B** (same `qwen3_5_moe` arch as the 122B but **3B active** vs 10B), through the model-general
+`ModelAdapter` with only a config change. Same-harness teacher(BF16)-vs-clip(int3), 64k thinking
+(full table + provenance in `results/RESULTS.md`):
+
+| axis | Δ overall acc | Δ acc-among-finished | truncation BF16→int3 |
+|------|---------------|----------------------|----------------------|
+| GPQA-Diamond | −11.1 | **−2.3** | 6% → 22% |
+| MATH-500     | −6.7  | **−0.3** | 1% → 13% |
+| LiveCodeBench-v6 | −10.5 | **+0.2** | 15% → 41% |
+| MMLU-Pro     | −11.3 | −4.9 | 0% → 9% |
+| MMMLU        | −4.7  | −2.6 | 0% → 7% |
+
+**Capability is preserved; the gap is token-efficiency.** Accuracy *among finished generations* barely
+moves (GPQA −2.3, MATH −0.3, LCB +0.2) — int3 does not collapse reasoning even at 3B-active. What degrades
+is reasoning **conciseness**: truncation roughly triples-to-quadruples, so overall acc (truncation = wrong)
+falls 5–11 pt. This is the SAME mechanism as the 122B (F-truncation: gaps live in truncation, not capability)
+but **markedly worse at 3B-active** — a smaller active set has less headroom to absorb per-expert quant error,
+so the quantized model needs more tokens to reach the same answer. **Implications:** (a) the near-lossless
+sub-4-bit MoE result is not specific to the 122B — it holds at 35B/A3B on the *capability* axis; (b) the
+binding cost at small A is truncation, so the optional OPD token-efficiency recovery (`docs/OPD_INTEGRATION.md`)
+and/or a larger generation budget matter more here than at 10B-active; (c) the cross-architecture
+generalization itself was validated independently on **OLMoE-1B-7B** (text-only, non-Qwen, fused experts
+under transformers 5.x) — quantized to 3.07 eff bits where the original Qwen-only code covered 0% of its
+experts (`pipelines/smoke_moe.sh`, `tests/test_adapter_invariance.py`).

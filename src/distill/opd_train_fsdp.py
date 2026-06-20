@@ -16,11 +16,15 @@ import torch.utils.checkpoint as tcp
 import torch.distributed as dist
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 import transformers; transformers.logging.set_verbosity_error()
-import moe_lora as ML, moe_quant as MQ
+import moe_lora as ML, moe_quant as MQ, model_adapters as MA
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
-from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeDecoderLayer, Qwen3_5MoeExperts
+try:
+    from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeDecoderLayer, Qwen3_5MoeExperts
+except Exception:   # OPD is fused-Qwen-only; placeholders so this module still imports without the arch
+    class Qwen3_5MoeDecoderLayer: pass
+    class Qwen3_5MoeExperts: pass
 
-V = 248320; VCHUNK = 128   # bound the 248K-vocab logit/logprob scratch (~127MB fp32) -> small forward peak
+V = 248320; VCHUNK = 128   # shared Qwen3.5/3.6 vocab; set from config at load (bound the vocab scratch)
 
 
 def free_unused(model):
@@ -110,6 +114,11 @@ def main():
     model = transformers.AutoModelForImageTextToText.from_pretrained(
         args.model, dtype=torch.bfloat16, device_map="cpu", trust_remote_code=True, low_cpu_mem_usage=True)
     model.config.use_cache = False
+    # set the active adapter (so attach_expert_lora's fused-only guard sees the right model) and read
+    # the real vocab size from config (Qwen3.5 and Qwen3.6 both report 248320; never hardcode).
+    global V
+    adapter = MA.get_adapter(model.config); MQ.set_active_adapter(adapter)
+    V = int(getattr(adapter.text_config(model.config), "vocab_size", V))
     free_unused(model)
     torch.manual_seed(0)                          # identical LoRA init on every rank (then sharded)
     MQ.set_clip_search(0)

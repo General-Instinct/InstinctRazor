@@ -59,6 +59,16 @@ R1/OpenThoughts CoT for breadth. Emphasize problems where teacher CoT is much sh
 3. Re-quantize → re-run BBEH/LCB/GPQA with the SAME budget → measure (a) truncation rate and (b) accuracy vs
    the un-recovered student and vs Gemma. Success = trunc↓ toward 0 AND BBEH/LCB close the gap.
 
+## Model-generality scope (multi-MoE refactor)
+OPD/expert-LoRA is **fused-expert only** (Qwen3.5-122B-A10B and Qwen3.6-35B-A3B, both `model_type:
+qwen3_5_moe`). The whole recovery path is built around the fused 3D expert layout — `_patched_forward`
+indexes `gate_up_proj[e]` / `down_proj[e]` and the FSDP wrap keys on `Qwen3_5MoeExperts` /
+`Qwen3_5MoeDecoderLayer`. Other MoE families are a **non-goal** for OPD (even fused ones like OLMoE, whose
+expert module/forward differ): `moe_lora.attach_expert_lora` raises `NotImplementedError` unless the active
+adapter sets `supports_opd` — only `Qwen35MoeAdapter` does (see model_adapters.py). The fused PTQ + eval
+path is fully model-general; only this recovery stage is Qwen-specific. (OPD Phase C itself is also a separately-documented FSDP blocker —
+see the KNOWN BLOCKER in opd_train_fsdp.py — so no new distill runs are gated on this refactor.)
+
 ## Target-set filter (user directive: only pursue benchmarks the TEACHER beats Gemma -> recoverable wins)
 Keep ONLY where BF16 teacher > Gemma-4 AND student lags (quant-recoverable):
 - **AIME**: teacher 90 > Gemma 86.7/89.2; student 73 → RECOVER (math CoT distillation).
