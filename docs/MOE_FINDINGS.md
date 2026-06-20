@@ -325,3 +325,13 @@ near-teacher overall acc mostly by cutting truncation (tr 5/21/7 vs our 11/49/9)
 upgrade at the same footprint; the bigger wins remain truncation recovery (OPD / larger budget) and the
 extra bit. (n=150/198/120 → ±several pt CI; the `fin` trend is small but consistent, overall-acc deltas are
 within noise.) Reproduce: `python src/quant/moe_quant_method.py --model Qwen/Qwen3.6-35B-A3B --method awq --out models/q36_awq3b`.
+
+**Ecosystem checkpoints.** QuantTrio's published **AWQ-4bit** (above) loads in vLLM 0.22 and is a 4-bit,
+bf16-backbone recipe (~21 GB) — near-teacher overall acc, but not footprint-matched to our 3-bit. **ParoQuant**
+(z-lab, ICLR 2026, INT4 pairwise-rotation, paper claims +2.4% over AWQ on reasoning) could **NOT be
+benchmarked**: installing their exact stack (`paroquant[vllm]` + vllm 0.19.1 cu130) and loading
+`z-lab/Qwen3.6-35B-A3B-PARO` fails at weight load with `KeyError: layers.0.mlp.experts.w2_qweight` (a
+fused-MoE quantized-expert mapping bug in their qwen3_5 loader) at both TP=1 and TP=4 — the documented
+`vllm serve` path shares the same `load_weights`, so it fails identically. Their +2.4%-over-AWQ claim is thus
+unverified on our harness; if it holds, ParoQuant-4bit would sit just above QuantTrio-AWQ-4bit (still a 4-bit,
+larger-footprint point than our int3).
