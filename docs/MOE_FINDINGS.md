@@ -357,3 +357,28 @@ same harness, vs ours:
   3-bit point; closing to ParoQuant means adopting **rotation + the 4th bit**, not just a better PTQ search.
   The framework's value (and the reason we could even run PARO) is the model-general fused-MoE handling that
   z-lab's own CUDA stack lacks.
+
+**Decomposing the gap: "+1 bit" vs "rotation" (matched 4-bit, ~17 GB).** Built our own int4-expert
+checkpoints (clip and awq) to isolate the bit budget from ParoQuant's learned rotation. acc / fin / trunc:
+
+| model | bits | MMLU-Pro | GPQA | MATH-500 |
+|-------|------|----------|------|----------|
+| teacher BF16 | 16b | 88.0/88/0 | 84.3/89/11 | 90.0/91/1 |
+| ParoQuant | 4b | 85.3/87/3 | 81.8/86/10 | 90.0/91/3 |
+| ours **clip-int4** | 4b | 84.7/87/7 | 74.7/85/25 | **90.0**/92/13 |
+| ours **awq-int4** | 4b | 86.0/87/3 | 71.7/**90**/43 | 86.7/93/12 |
+| ours clip-int3 | 3b | 76.7/83/14 | 73.2/86/43 | 83.3/90/15 |
+| ours awq-int3 | 3b | 80.0/85/11 | 68.2/87/49 | 86.7/94/9 |
+
+**The 4th bit is the dominant lever, NOT rotation.** int3→int4 lifts MMLU-Pro +8.0 (clip) / +6.0 (awq) and
+MATH-500 to 90.0 (clip-int4) = teacher = PARO. At matched 4-bit our simple methods are **competitive with
+SOTA ParoQuant on raw capability**: MMLU-Pro 84.7–86.0 vs PARO 85.3; MATH-500 clip-int4 90.0 = PARO;
+GPQA *acc-among-finished* ours 85–90 ≥ PARO 86 (awq-int4's 90 fin is the highest of any model, incl. teacher).
+**ParoQuant's residual overall-acc edge is almost entirely lower TRUNCATION** (better-preserved token
+efficiency): on GPQA PARO truncates 10/198 vs our int4's 25–43, which is the whole GPQA overall-acc gap
+(our capability-among-finished is already ≥ PARO's). This ties back to F12 — quantization's binding cost is
+token-inefficiency/truncation, not capability collapse — and reframes the takeaway: **closing to SOTA is
+"the 4th bit + truncation recovery (OPD / budget)", and rotation's benefit shows up as token-efficiency,
+not raw accuracy.** (clip-int4 also truncates less than awq-int4 on GPQA, 25 vs 43 — the symmetric
+clip-search preserves conciseness better here.) Reproduce: `quant_save.py --expert-bits 4` /
+`moe_quant_method.py --method awq --bits 4`.

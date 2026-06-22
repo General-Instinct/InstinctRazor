@@ -1,0 +1,21 @@
+{
+  "tag": "q36_clip_int4",
+  "model": "models/q36_clip_int4",
+  "think": true,
+  "mmlu_pro_acc": 84.66666666666667,
+  "mmlu_pro_acc_finished": 86.7132867132867,
+  "mmlu_pro_n": 150,
+  "mmlu_pro_n_finished": 143,
+  "mmlu_pro_trunc": 7,
+  "gpqa_acc": 74.74747474747475,
+  "gpqa_acc_finished": 84.97109826589596,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 173,
+  "gpqa_trunc": 25,
+  "math500_acc": 90.0,
+  "math500_acc_finished": 91.58878504672897,
+  "math500_n": 120,
+  "math500_n_finished": 107,
+  "math500_trunc": 13,
+  "seconds": 6245.076763629913
+}
