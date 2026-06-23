@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# razor — InstinctRazor unified CLI wrapper. Sources env.sh (PYTHONPATH + venv) then runs razor.py.
+#   ./razor --model <hf> --quant <type> [--eval mmlu_pro,gpqa] [--budget 32k|64k]
+#   ./razor --help
+HERE="$( cd "$( dirname "${BASH_SOURCE[0]:-$0}" )" && pwd )"
+: "${MOE_LOWBIT_VENV:=$HERE/vllm_venv}"
+# shellcheck disable=SC1091
+source "$HERE/env.sh" >/dev/null 2>&1 || true
+exec python "$HERE/razor.py" "$@"

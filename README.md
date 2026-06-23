@@ -32,7 +32,44 @@ Evaluation details are documented in `docs/EVAL_PROTOCOL.md`.
 
 ---
 
-## Quickstart
+## Unified CLI (`razor`)
+
+One command takes a **Hugging Face model → quantized `.gguf` → (optional) benchmarked eval**. It wraps the
+whole framework (model download, the model-general quantizer, llama.cpp convert+quantize, and the eval
+harnesses) behind a single developer entrypoint, and works across MoE families via the `ModelAdapter`
+(`src/quant/model_adapters.py`).
+
+```bash
+# HF model -> deployable 3-bit GGUF (MoE-aware "InstinctRazor" protected recipe)
+./razor --model Qwen/Qwen3.6-35B-A3B --quant instinct-iq3 --out runs/q36
+
+# HF model -> standard llama.cpp 4-bit GGUF, then eval on two benchmarks
+./razor --model meta-llama/Llama-3.1-8B-Instruct --quant Q4_K_M \
+        --eval mmlu_pro,gpqa --budget 32k
+
+# Quick eval (cap samples) — handy for a smoke
+./razor --model Qwen/Qwen3-0.6B --quant Q4_K_M --eval mmlu_pro --eval-n 16 --eval-budget 2048
+
+# Research path: our fake-quant capability-ceiling checkpoint (no GGUF), eval in vLLM
+./razor --model Qwen/Qwen3.6-35B-A3B --recipe awq --expert-bits 3 --no-gguf \
+        --eval mmlu_pro,gpqa,math500
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--model` | HF repo id or local path |
+| `--quant` | GGUF type (`Q4_K_M`, `IQ3_XXS`, `Q6_K`, …) **or** an InstinctRazor protected recipe (`instinct-q3`, `instinct-iq3`) → emits a `.gguf` |
+| `--recipe` | `clip` / `awq` / `gptq` / `rtn` → our PTQ to a dequant-bf16 *capability-ceiling* checkpoint (research/eval) |
+| `--eval` | comma-separated benchmarks (e.g. `mmlu_pro,gpqa,math500`); omit to skip eval. GGUF → llama.cpp harness, bf16 ckpt → vLLM harness |
+| `--budget` | `32k` (knowledge/reasoning) or `64k` (code/math) thinking budget; `--eval-n` / `--eval-budget` for quick runs |
+| `--dry-run` | print the full plan, run nothing |
+
+**Prereq for `.gguf`:** a llama.cpp build supporting the model's arch (CPU build is enough to quantize):
+`git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp && cmake -B build -DGGML_CUDA=OFF && cmake --build build -j --target llama-quantize llama-server`, then `export LLAMA_CPP=$PWD` (or place it at `./llama.cpp`).
+
+---
+
+## Quickstart (manual pipelines)
 
 ### Smoke test
 
