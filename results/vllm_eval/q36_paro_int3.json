@@ -1,0 +1,21 @@
+{
+  "tag": "q36_paro_int3",
+  "model": "models/q36_paro_int3_fp16",
+  "think": true,
+  "mmlu_pro_acc": 79.33333333333333,
+  "mmlu_pro_acc_finished": 84.39716312056737,
+  "mmlu_pro_n": 150,
+  "mmlu_pro_n_finished": 141,
+  "mmlu_pro_trunc": 9,
+  "gpqa_acc": 74.24242424242425,
+  "gpqa_acc_finished": 91.94630872483222,
+  "gpqa_n": 198,
+  "gpqa_n_finished": 149,
+  "gpqa_trunc": 49,
+  "math500_acc": 76.66666666666667,
+  "math500_acc_finished": 87.75510204081633,
+  "math500_n": 120,
+  "math500_n_finished": 98,
+  "math500_trunc": 22,
+  "seconds": 8130.832854747772
+}

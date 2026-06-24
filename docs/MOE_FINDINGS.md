@@ -382,3 +382,28 @@ token-inefficiency/truncation, not capability collapse — and reframes the take
 not raw accuracy.** (clip-int4 also truncates less than awq-int4 on GPQA, 25 vs 43 — the symmetric
 clip-search preserves conciseness better here.) Reproduce: `quant_save.py --expert-bits 4` /
 `moe_quant_method.py --method awq --bits 4`.
+
+**ParoQuant AT int3 (we quantized it ourselves — it collapses from int4).** ParoQuant ships 4-bit only;
+we ran their optimizer at `n_bit=3` to get the int3 datapoint. Their CUDA optimizer is single-GPU + layer-
+sequential, so we patched it with **within-layer data parallelism** across 8 GPUs
+(`src/quant/paro_optimize_ddp.py`: shard calib per rank, all-reduce(AVG) the rotation/scale/weight grads,
+replicate val, save on rank 0) — block-0 val quant-loss matched single-GPU (2.20e-6 vs 2.05e-6), ~6× faster
+(6.5h vs ~33h). Converted with `convert --mode pseudo` → FP16, same harness:
+
+| model (int3, ~13.5 GB) | MMLU-Pro | GPQA | MATH-500 | avg acc |
+|------------------------|----------|------|----------|---------|
+| ParoQuant-int3 | 79.3/84/9 | 74.2/**92**/49 | 76.7/88/22 | **76.7** |
+| ours awq-int3  | 80.0/85/11 | 68.2/87/49 | 86.7/94/9 | **78.3** |
+| ours clip-int3 | 76.7/83/14 | 73.2/86/43 | 83.3/90/15 | 77.7 |
+| (ref) ParoQuant-int4 | 85.3 | 81.8 | 90.0 | 85.7 |
+
+**ParoQuant does NOT dominate at int3.** (1) It **collapses int4→int3** (avg 85.7→76.7, −9; MATH 90.0→76.7,
+−13) — the rotation advantage largely evaporates at 3-bit, reinforcing "the 4th bit is the dominant lever."
+(2) On headline overall acc our simple awq-int3 (78.3) ≥ ParoQuant-int3 (76.7); ParoQuant keeps the best
+GPQA capability-among-finished (fin 92, highest of any model incl. teacher) but truncates so much (49/198)
+that overall acc drops. **Caveats (do not overclaim a win):** the calibration sets differ — our awq used
+math+code+instruct calib (`build_calib`), ParoQuant-int3 used wikitext2 per their script, which likely
+explains much of the MATH gap; int3 is outside ParoQuant's 4-bit design point; n=150/198/120 (±several pt).
+Net: **no method dominates at int3 — it's a wash, and the real levers stay the 4th bit + truncation
+recovery, not the quant algorithm.** Reproduce: `torchrun --nproc_per_node=8 src/quant/paro_optimize_ddp.py
+--n-bit 3 ...` then `python -m paroquant.cli.convert --mode pseudo`.
