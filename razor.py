@@ -174,6 +174,21 @@ def stage_eval_gguf(args, gguf, py):
     log(f"eval done -> results/vllm_eval/{args.tag}.json")
 
 
+def stage_recover(args):
+    """OPD recovery: distill the BF16 teacher into a per-expert LoRA on the quantized student, re-quantize.
+    Wraps pipelines/distill.sh (4 phases across the eval + train venvs)."""
+    if not args.student: die("--recover needs --student <quantized checkpoint to recover>")
+    teacher = args.teacher or args.model
+    train_venv = args.train_venv or os.environ.get("MOE_LOWBIT_TRAIN_VENV") or str(HERE / "train_venv")
+    out = str(Path(args.out) / "opd_recovered")
+    env = {**os.environ, "STU": args.student, "TEA": teacher, "OUT": out,
+           "S": str(Path(args.out) / "opd_stage"), "MOE_LOWBIT_TRAIN_VENV": train_venv}
+    cmd = ["bash", HERE / "pipelines/distill.sh"] + (["--smoke"] if args.recover_smoke else [])
+    log(f"OPD recover: student={args.student} teacher={teacher} train_venv={train_venv} smoke={args.recover_smoke}")
+    if args.dry_run: log("DRY: " + " ".join(map(str, cmd)) + f"  (STU={args.student} TEA={teacher} OUT={out})"); return out
+    run(cmd, cwd=HERE, env=env); return out
+
+
 def stage_eval_ckpt(args, ckpt, py):
     budget = "64k" if args.budget == "64k" else "32k"
     cmd = ["bash", HERE / "pipelines/eval.sh", "--model", ckpt, "--tag", args.tag,
@@ -188,6 +203,12 @@ def main():
     ap.add_argument("--quant", help=f"GGUF type ({sorted(GGUF_TYPES)}) or InstinctRazor recipe ({sorted(INSTINCT_RECIPES)})")
     ap.add_argument("--recipe", choices=sorted(PTQ_RECIPES), help="research PTQ -> dequant-bf16 capability-ceiling ckpt")
     ap.add_argument("--no-gguf", action="store_true", help="skip GGUF (with --recipe, just produce+eval the bf16 ckpt)")
+    # --- OPD recovery (truncation/token-efficiency recovery via on-policy distillation) ---
+    ap.add_argument("--recover", choices=["opd"], help="recover a quantized student via on-policy distillation from the BF16 teacher")
+    ap.add_argument("--student", help="quantized student checkpoint to recover (for --recover)")
+    ap.add_argument("--teacher", help="BF16 teacher (for --recover; default: --model)")
+    ap.add_argument("--recover-smoke", action="store_true", help="run only the FSDP Phase-C smoke (the blocker test)")
+    ap.add_argument("--train-venv", default=None, help="OPD train venv (torch2.7+fla); default $MOE_LOWBIT_TRAIN_VENV or ./train_venv")
     ap.add_argument("--out", default=None, help="output dir (default: runs/<model_name>)")
     ap.add_argument("--eval", default=None, help="comma benchmarks, e.g. mmlu_pro,gpqa,math500 (omit = no eval)")
     ap.add_argument("--budget", default="32k", choices=["32k", "64k"])
@@ -208,14 +229,22 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="print the plan, run nothing")
     args = ap.parse_args()
 
-    if not args.quant and not args.recipe:
-        die("specify --quant <gguf-type|instinct-*> (deployment GGUF) and/or --recipe <clip|awq|gptq|rtn> (research ckpt).")
+    if not (args.quant or args.recipe or args.recover):
+        die("specify --quant <gguf-type|instinct-*> (GGUF), --recipe <clip|awq|gptq|rtn> (research ckpt), or --recover opd.")
     args.out = args.out or str(HERE / "runs" / Path(args.model).name)
     Path(args.out).mkdir(parents=True, exist_ok=True)
     py = sys.executable
     args.model_id = args.model
+    log(f"model={args.model}  quant={args.quant}  recipe={args.recipe}  recover={args.recover}  eval={args.eval or 'no'}  out={args.out}")
 
-    log(f"model={args.model}  quant={args.quant}  recipe={args.recipe}  eval={args.eval or 'no'}  out={args.out}")
+    if args.recover:                                 # OPD recovery of an existing quantized student
+        recovered = stage_recover(args)
+        if args.eval and not args.recover_smoke and not args.dry_run:
+            args.tag = args.tag or (Path(args.out).name + "_opd")
+            log(f"=== EVAL (recovered ckpt) benchmarks={args.eval} budget={args.budget} ===")
+            stage_eval_ckpt(args, recovered, py)
+        log("DONE."); return
+
     model_dir = args.model if args.dry_run else resolve_model(args.model)
 
     target = None        # what eval runs on

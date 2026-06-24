@@ -53,6 +53,9 @@ harnesses) behind a single developer entrypoint, and works across MoE families v
 # Research path: our fake-quant capability-ceiling checkpoint (no GGUF), eval in vLLM
 ./razor --model Qwen/Qwen3.6-35B-A3B --recipe awq --expert-bits 3 --no-gguf \
         --eval mmlu_pro,gpqa,math500
+
+# Recovery: on-policy distillation of a quantized student from the BF16 teacher (truncation recovery)
+./razor --model Qwen/Qwen3.6-35B-A3B --recover opd --student models/q36_ptq3b_clip --recover-smoke
 ```
 
 | Flag | Meaning |
@@ -60,6 +63,7 @@ harnesses) behind a single developer entrypoint, and works across MoE families v
 | `--model` | HF repo id or local path |
 | `--quant` | GGUF type (`Q4_K_M`, `IQ3_XXS`, `Q6_K`, …) **or** an InstinctRazor protected recipe (`instinct-q3`, `instinct-iq3`) → emits a `.gguf` |
 | `--recipe` | `clip` / `awq` / `gptq` / `rtn` → our PTQ to a dequant-bf16 *capability-ceiling* checkpoint (research/eval) |
+| `--recover opd` | recover a quantized `--student` via on-policy distillation from the BF16 teacher (`--recover-smoke` runs just the FSDP blocker test). Needs the train venv (`requirements-train.txt`) |
 | `--eval` | comma-separated benchmarks (e.g. `mmlu_pro,gpqa,math500`); omit to skip eval. GGUF → llama.cpp harness, bf16 ckpt → vLLM harness |
 | `--budget` | `32k` (knowledge/reasoning) or `64k` (code/math) thinking budget; `--eval-n` / `--eval-budget` for quick runs |
 | `--dry-run` | print the full plan, run nothing |
