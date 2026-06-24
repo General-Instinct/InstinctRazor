@@ -69,6 +69,32 @@ adapter sets `supports_opd` — only `Qwen35MoeAdapter` does (see model_adapters
 path is fully model-general; only this recovery stage is Qwen-specific. (OPD Phase C itself is also a separately-documented FSDP blocker —
 see the KNOWN BLOCKER in opd_train_fsdp.py — so no new distill runs are gated on this refactor.)
 
+## Phase-C FSDP status at 35B (2026-06, smoke-tested on Qwen3.6-35B-A3B, 4×H100)
+The 122B never reached a training step (it OOM'd before the blocker could even be characterized). At
+35B the smoke gets far enough to isolate the failure mode precisely. Three configurations, in order:
+
+1. **`--checkpoint 1` (gradient checkpointing ON, static expert loop):** `CheckpointError` — the
+   dynamic per-expert MoE forward is rerouted on recompute, so the checkpoint's saved/recomputed tensor
+   sets diverge. This is the originally-documented Phase-C blocker. **Confirmed at 35B.**
+2. **`--checkpoint 0` + static loop:** OOM (the static loop materializes all 256 experts' activations).
+3. **`--checkpoint 0` + dynamic loop (`static_loop=bool(args.checkpoint)`), `--max-len 1024`, short
+   rollouts:** **clears both prior blockers** — no `CheckpointError`, no OOM. Forward + backward run and
+   a real loss is produced (`step0 kl=20.87`). New, deeper failure surfaces:
+   **`AssertionError: zero LoRA grad` (`grad(all-shard)=0.000e+00`).**
+
+**Root cause of the zero-grad (the remaining blocker):** under FSDP2 the per-expert LoRA params
+(`lora.Bgu`/`lora.Agu`, shape `[E, …]`) are **sharded** (DTensor). `_patched_forward` indexes them
+per-expert (`lora.Bgu[e]`); FSDP all-gathers the params for the **forward**, so the loss computes, but
+the gradient does not flow back to the sharded LoRA on the **backward** (grad is *exactly* 0, i.e. the
+LoRA params are disconnected from the autograd graph after the per-expert index, not merely small). The
+base experts survive only because FSDP2 gathers them for forward and they are frozen (no grad needed).
+
+**Next lever (untried):** keep the LoRA params **out of FSDP sharding** — replicate them across ranks
+(attach LoRA after `fully_shard`, or add the LoRA module to FSDP `ignored_params`) so `lora.Bgu[e]`
+indexes a local full tensor and the grad accumulates + all-reduces normally. The LoRA is small (~0.9 GB
+at rank 16), so replicating it costs little. This is the open task to make Phase-C OPD actually train at
+35B; the two memory/recompute blockers above are already solved by `--checkpoint 0` + dynamic loop.
+
 ## Target-set filter (user directive: only pursue benchmarks the TEACHER beats Gemma -> recoverable wins)
 Keep ONLY where BF16 teacher > Gemma-4 AND student lags (quant-recoverable):
 - **AIME**: teacher 90 > Gemma 86.7/89.2; student 73 → RECOVER (math CoT distillation).
