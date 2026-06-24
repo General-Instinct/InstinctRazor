@@ -94,6 +94,7 @@ def main():
     ap.add_argument("--reverse", type=int, default=1)
     ap.add_argument("--ckpt-every", type=int, default=0)   # save adapter every N steps (0=only at end)
     ap.add_argument("--cpu-offload", type=int, default=1)  # offload frozen base off-GPU (frees headroom for the fla DeltaNet recompute); combined with reentrant ckpt
+    ap.add_argument("--checkpoint", type=int, default=1)   # gradient checkpointing; 0 DISABLES it (needs VRAM headroom, but avoids the dynamic-MoE recompute blocker — viable for smaller models like Qwen3.6-35B)
     ap.add_argument("--smoke", type=int, default=0)
     args = ap.parse_args()
 
@@ -122,7 +123,11 @@ def main():
     free_unused(model)
     torch.manual_seed(0)                          # identical LoRA init on every rank (then sharded)
     MQ.set_clip_search(0)
-    trainable = ML.attach_expert_lora(model, bits=args.bits, group=args.group, rank=args.rank, scale=args.scale, static_loop=True)
+    # static loop (all 256 experts/step) is ONLY needed to give gradient-checkpointing a constant saved-tensor
+    # count. With checkpointing OFF we use the DYNAMIC loop (only ~8 routed experts/token) -> ~32x less
+    # activation memory AND no recompute -> sidesteps both the OOM and the CheckpointError blockers.
+    trainable = ML.attach_expert_lora(model, bits=args.bits, group=args.group, rank=args.rank, scale=args.scale,
+                                      static_loop=bool(args.checkpoint))
     model.enable_input_require_grads()   # frozen base + reentrant ckpt: make embed output require grad so grad reaches LoRA
     backbone, lmhead = text_backbone(model)
     log(f"[fsdp-opd] loaded+attached on CPU ({time.time()-t0:.0f}s)")
@@ -156,9 +161,13 @@ def main():
     def _sacck(fn, *a, **k):
         k.pop("use_reentrant", None); k.pop("determinism_check", None)
         return _ckpt(fn, *a, use_reentrant=False, context_fn=lambda: _sacctx(_pol), **k)
-    log(f"[fsdp-opd] SAC ckpt (MUST_SAVE routing topk/softmax/matmuls) + static loop; cpu_offload={args.cpu_offload}")
-    model.gradient_checkpointing_enable()
-    model._gradient_checkpointing_func = _sacck
+    if args.checkpoint:
+        log(f"[fsdp-opd] SAC ckpt (MUST_SAVE routing topk/softmax/matmuls) + static loop; cpu_offload={args.cpu_offload}")
+        model.gradient_checkpointing_enable()
+        model._gradient_checkpointing_func = _sacck
+    else:
+        log(f"[fsdp-opd] gradient checkpointing DISABLED -> no recompute -> avoids the dynamic-MoE recompute "
+            f"CheckpointError (relies on VRAM headroom; cpu_offload={args.cpu_offload})")
     torch.cuda.synchronize()
     log(f"[fsdp-opd] FSDP2-sharded across {world} GPUs ({time.time()-t0:.0f}s); "
         f"rank{rank} base-resident={torch.cuda.memory_allocated(local)/1e9:.1f}GB "
