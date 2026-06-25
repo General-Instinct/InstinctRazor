@@ -257,9 +257,15 @@ def main():
         # LoRA is FSDP-IGNORED (replicated), so FSDP does NOT reduce its grads. Each rank trained a disjoint
         # rollout slice -> manually all-reduce(AVG) the LoRA grads so every replica steps on the global grad
         # and stays in lockstep (the DP correctness FSDP would otherwise provide via reduce-scatter).
+        # CRITICAL: every rank must all-reduce EVERY param in the SAME order. With the dynamic expert loop
+        # different ranks route to different experts -> different LoRA params get a grad -> conditioning on
+        # `p.grad is not None` would make the ranks issue a DIFFERENT set of collectives -> NCCL desync/hang
+        # (DistBackendError). So materialize zero grads for the un-hit params and reduce ALL of them: a rank
+        # that didn't touch expert e contributes 0, and AVG gives the correct global-batch mean.
         for p in trainable:
-            if p.grad is not None:
-                dist.all_reduce(p.grad, op=dist.ReduceOp.AVG)
+            if p.grad is None:
+                p.grad = torch.zeros_like(p)
+            dist.all_reduce(p.grad, op=dist.ReduceOp.AVG)
         if step == 0:
             # per-rank local grad magnitude BEFORE the AVG above already mutated nothing destructive (AVG keeps
             # magnitude scale); confirms grad actually reached the (replicated) LoRA — the old failure was 0.
