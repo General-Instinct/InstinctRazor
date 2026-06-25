@@ -101,7 +101,8 @@ def main():
     ap.add_argument("--reverse", type=int, default=1)
     ap.add_argument("--ckpt-every", type=int, default=0)   # save adapter every N steps (0=only at end)
     ap.add_argument("--cpu-offload", type=int, default=0)  # CPU-offload frozen base (slow per-step fetch + 1.65x-mem pathology for frozen params). Default OFF: base stays GPU-resident (~17.5GB/GPU) -> compute-bound, full GPU util
-    ap.add_argument("--ckpt-experts", type=int, default=1) # ELEGANT path: checkpoint the expert body (recompute reconstructed Wgu/Wdn on backward -> frees the dominant ~64GB; routing is a saved input -> deterministic, no CheckpointError). Unlocks long seq + GPU-resident base
+    ap.add_argument("--ckpt-experts", type=int, default=1) # checkpoint the expert body (recompute reconstructed Wgu/Wdn on backward -> frees ~64GB). NOTE: fragile under FSDP2 (recompute re-triggers an all-gather during backward -> deadlock); prefer --fast
+    ap.add_argument("--fast", type=int, default=1)         # FAST/robust path: bake the quantized base ONCE + train output-space LoRA. No per-step weight reconstruction -> low mem WITHOUT checkpointing (base is a frozen PARAM, not a saved activation) -> no recompute, no FSDP-gather-in-backward deadlock, fast. Adapter format + merge identical to the STE path
     ap.add_argument("--checkpoint", type=int, default=0)   # LEGACY whole-layer gradient checkpointing (recomputes the router -> CheckpointError on dynamic MoE). Kept for comparison; default OFF in favor of --ckpt-experts
     ap.add_argument("--smoke", type=int, default=0)
     args = ap.parse_args()
@@ -142,8 +143,19 @@ def main():
     # deterministic -> no CheckpointError (unlike legacy --checkpoint, which checkpoints the whole layer incl.
     # the router). Freed term is SEQUENCE-INDEPENDENT, so long seq fits; and the base can stay GPU-resident
     # (no --cpu-offload) -> compute-bound, full GPU utilization. static_loop only for the legacy layer-ckpt path.
-    trainable = ML.attach_expert_lora(model, bits=args.bits, group=args.group, rank=args.rank, scale=args.scale,
-                                      static_loop=bool(args.checkpoint), ckpt=bool(args.ckpt_experts))
+    if args.fast:
+        # FAST path: bake fakequant(experts) in-place ONCE, then train output-space per-expert LoRA. No per-step
+        # STE weight reconstruction -> the ~64GB term simply doesn't exist (base is a frozen param, referenced by
+        # F.linear backward without being saved as an activation) -> fits long seq with NO checkpointing and NO
+        # CPU offload -> no recompute, no FSDP all-gather-during-backward deadlock. Output-space LoRA Bgu@Agu is
+        # an exact weight-space delta, so save_adapter + merge_adapter (base + s*Bgu@Agu, requantize) are unchanged.
+        # clip_steps=0 (absmax) for the in-place bake: clip-search on the CPU model over 40x256x2 expert weights
+        # took ~5h. The LoRA corrects the (small) extra quant error; merge re-quantizes with clip-search for deploy.
+        trainable = ML.attach_expert_lora_fast(model, bits=args.bits, group=args.group, rank=args.rank,
+                                               scale=args.scale, clip_steps=0)
+    else:
+        trainable = ML.attach_expert_lora(model, bits=args.bits, group=args.group, rank=args.rank, scale=args.scale,
+                                          static_loop=bool(args.checkpoint), ckpt=bool(args.ckpt_experts))
     model.enable_input_require_grads()   # frozen base + reentrant ckpt: make embed output require grad so grad reaches LoRA
     backbone, lmhead = text_backbone(model)
     log(f"[fsdp-opd] loaded+attached on CPU ({time.time()-t0:.0f}s)")
