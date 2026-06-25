@@ -100,8 +100,9 @@ def main():
     ap.add_argument("--max-len", type=int, default=8192)
     ap.add_argument("--reverse", type=int, default=1)
     ap.add_argument("--ckpt-every", type=int, default=0)   # save adapter every N steps (0=only at end)
-    ap.add_argument("--cpu-offload", type=int, default=1)  # offload frozen base off-GPU (frees headroom for the fla DeltaNet recompute); combined with reentrant ckpt
-    ap.add_argument("--checkpoint", type=int, default=1)   # gradient checkpointing; 0 DISABLES it (needs VRAM headroom, but avoids the dynamic-MoE recompute blocker — viable for smaller models like Qwen3.6-35B)
+    ap.add_argument("--cpu-offload", type=int, default=0)  # CPU-offload frozen base (slow per-step fetch + 1.65x-mem pathology for frozen params). Default OFF: base stays GPU-resident (~17.5GB/GPU) -> compute-bound, full GPU util
+    ap.add_argument("--ckpt-experts", type=int, default=1) # ELEGANT path: checkpoint the expert body (recompute reconstructed Wgu/Wdn on backward -> frees the dominant ~64GB; routing is a saved input -> deterministic, no CheckpointError). Unlocks long seq + GPU-resident base
+    ap.add_argument("--checkpoint", type=int, default=0)   # LEGACY whole-layer gradient checkpointing (recomputes the router -> CheckpointError on dynamic MoE). Kept for comparison; default OFF in favor of --ckpt-experts
     ap.add_argument("--smoke", type=int, default=0)
     args = ap.parse_args()
 
@@ -130,11 +131,15 @@ def main():
     free_unused(model)
     torch.manual_seed(0)                          # identical LoRA init on every rank (then sharded)
     MQ.set_clip_search(0)
-    # static loop (all 256 experts/step) is ONLY needed to give gradient-checkpointing a constant saved-tensor
-    # count. With checkpointing OFF we use the DYNAMIC loop (only ~8 routed experts/token) -> ~32x less
-    # activation memory AND no recompute -> sidesteps both the OOM and the CheckpointError blockers.
+    # ELEGANT memory strategy (default): checkpoint the EXPERT BODY (--ckpt-experts). The dominant training
+    # memory is the reconstructed per-expert weights Wgu/Wdn held for the F.linear backward (~64GB across 40
+    # un-checkpointed layers, all 256 experts hit). Checkpointing the expert body recomputes them on backward
+    # -> frees ~64GB; because the routing is a SAVED INPUT (the router ran upstream) the recompute is
+    # deterministic -> no CheckpointError (unlike legacy --checkpoint, which checkpoints the whole layer incl.
+    # the router). Freed term is SEQUENCE-INDEPENDENT, so long seq fits; and the base can stay GPU-resident
+    # (no --cpu-offload) -> compute-bound, full GPU utilization. static_loop only for the legacy layer-ckpt path.
     trainable = ML.attach_expert_lora(model, bits=args.bits, group=args.group, rank=args.rank, scale=args.scale,
-                                      static_loop=bool(args.checkpoint))
+                                      static_loop=bool(args.checkpoint), ckpt=bool(args.ckpt_experts))
     model.enable_input_require_grads()   # frozen base + reentrant ckpt: make embed output require grad so grad reaches LoRA
     backbone, lmhead = text_backbone(model)
     log(f"[fsdp-opd] loaded+attached on CPU ({time.time()-t0:.0f}s)")
@@ -182,8 +187,10 @@ def main():
         model.gradient_checkpointing_enable()
         model._gradient_checkpointing_func = _sacck
     else:
-        log(f"[fsdp-opd] gradient checkpointing DISABLED -> no recompute -> avoids the dynamic-MoE recompute "
-            f"CheckpointError (relies on VRAM headroom; cpu_offload={args.cpu_offload})")
+        log(f"[fsdp-opd] legacy whole-layer checkpointing OFF. ckpt_experts={args.ckpt_experts} "
+            f"(checkpoint expert body -> recompute reconstructed weights on backward, deterministic via saved "
+            f"routing -> frees ~64GB, no CheckpointError); cpu_offload={args.cpu_offload} "
+            f"(0 = base GPU-resident, compute-bound)")
     torch.cuda.synchronize()
     log(f"[fsdp-opd] FSDP2-sharded across {world} GPUs ({time.time()-t0:.0f}s); "
         f"rank{rank} base-resident={torch.cuda.memory_allocated(local)/1e9:.1f}GB "

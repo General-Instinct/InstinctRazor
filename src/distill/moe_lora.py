@@ -37,18 +37,24 @@ class ExpertLoRA(nn.Module):
         self.Adn = nn.Parameter(torch.empty(E, k, inter, dtype=dtype, device=device).normal_(0, 0.01))
         self.Bdn = nn.Parameter(torch.zeros(E, hidden, k, dtype=dtype, device=device))
 
-def _patched_forward(self, hidden_states, top_k_index, top_k_weights):
+def _expert_body(self, hidden_states, top_k_index, top_k_weights):
+    """The per-expert STE+LoRA computation. Routing (top_k_index/top_k_weights) is an INPUT, never recomputed
+    here -> when this body is wrapped in activation checkpointing the dispatch is deterministic on recompute
+    (Router-Replay-equivalent: the router ran upstream; its output is a saved checkpoint input). The dominant
+    training memory is the reconstructed per-expert weights Wgu/Wdn held for the F.linear backward (~1.6GB/layer
+    at seq 1024, all 256 experts hit) -> checkpointing this body recomputes them on backward and frees ~64GB
+    across 40 layers. That term is SEQUENCE-INDEPENDENT (it's weights), so checkpointing unlocks long seq nearly
+    for free. See _patched_forward + opd_train_fsdp.py."""
     final = torch.zeros_like(hidden_states)
     bits, g, s = self._q_bits, self._q_group, self._lora_scale
     lora = self._lora
     with torch.no_grad():
         em = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts).permute(2, 1, 0)
         hit = torch.greater(em.sum(dim=(-1, -2)), 0).nonzero()
-    # _static_loop=True (set for FSDP training): iterate ALL experts so the saved-tensor COUNT is CONSTANT
-    # regardless of routing -> compatible with gradient checkpointing (the dynamic `hit` loop's data-dependent
-    # length is exactly what makes non-reentrant recompute save a different #tensors -> CheckpointError, and
-    # reentrant gives zero grad). Math identical (empty experts -> empty index_add no-op). ~32x expert compute,
-    # acceptable for ONE short OPD round; the dynamic path stays default for inference/merge. See opd_train_fsdp.py.
+    # Dynamic loop (only routed experts). Safe under checkpointing because the routing is a saved INPUT, so the
+    # loop length + per-expert token sets are identical on recompute (the old CheckpointError came from
+    # checkpointing the WHOLE decoder layer, which recomputed the ROUTER nondeterministically). _static_loop is
+    # retained only for the legacy whole-layer-checkpoint path.
     if getattr(self, "_static_loop", False):
         _experts = list(range(self.num_experts))
     else:
@@ -68,8 +74,21 @@ def _patched_forward(self, hidden_states, top_k_index, top_k_weights):
         final.index_add_(0, tok, ch.to(final.dtype))
     return final
 
-def attach_expert_lora(model, bits=3.0, group=128, rank=8, scale=2.0, static_loop=False):
-    """Freeze base; attach per-expert LoRA + STE-quant to every Qwen3_5MoeExperts; return trainable params."""
+
+def _patched_forward(self, hidden_states, top_k_index, top_k_weights):
+    # Activation-checkpoint the expert body (recompute the heavy reconstructed weights on backward) when training.
+    # use_reentrant=False + routing-as-saved-input -> deterministic recompute, no CheckpointError. Frees the
+    # ~64GB of held expert weights -> base can stay GPU-resident (no CPU param offload) AND long seq fits.
+    if getattr(self, "_ckpt", False) and torch.is_grad_enabled():
+        import torch.utils.checkpoint as _ckpt
+        return _ckpt.checkpoint(_expert_body, self, hidden_states, top_k_index, top_k_weights, use_reentrant=False)
+    return _expert_body(self, hidden_states, top_k_index, top_k_weights)
+
+def attach_expert_lora(model, bits=3.0, group=128, rank=8, scale=2.0, static_loop=False, ckpt=False):
+    """Freeze base; attach per-expert LoRA + STE-quant to every Qwen3_5MoeExperts; return trainable params.
+    ckpt=True activation-checkpoints the expert body (recompute reconstructed weights on backward -> frees the
+    dominant ~64GB and unlocks long seq + GPU-resident base; routing is a saved input so recompute is
+    deterministic -> no CheckpointError). Use ckpt=True for FSDP training; leave False for merge/inference."""
     _assert_opd_supported()
     for p in model.parameters():
         p.requires_grad_(False)
@@ -82,6 +101,7 @@ def attach_expert_lora(model, bits=3.0, group=128, rank=8, scale=2.0, static_loo
             lora = ExpertLoRA(E, H, I, rank, dt, dev)
             mod._lora = lora; mod._q_bits = bits; mod._q_group = group; mod._lora_scale = scale
             mod._static_loop = static_loop   # all-experts loop -> constant saved-tensor count for grad-checkpointing
+            mod._ckpt = ckpt                  # checkpoint the expert body (deterministic via saved routing input)
             mod.forward = _patched_forward.__get__(mod, mod.__class__)
             for p in lora.parameters():
                 p.requires_grad_(True); trainable.append(p)
