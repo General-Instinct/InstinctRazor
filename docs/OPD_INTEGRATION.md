@@ -89,11 +89,25 @@ the gradient does not flow back to the sharded LoRA on the **backward** (grad is
 LoRA params are disconnected from the autograd graph after the per-expert index, not merely small). The
 base experts survive only because FSDP2 gathers them for forward and they are frozen (no grad needed).
 
-**Next lever (untried):** keep the LoRA params **out of FSDP sharding** — replicate them across ranks
-(attach LoRA after `fully_shard`, or add the LoRA module to FSDP `ignored_params`) so `lora.Bgu[e]`
-indexes a local full tensor and the grad accumulates + all-reduces normally. The LoRA is small (~0.9 GB
-at rank 16), so replicating it costs little. This is the open task to make Phase-C OPD actually train at
-35B; the two memory/recompute blockers above are already solved by `--checkpoint 0` + dynamic loop.
+**RESOLVED (2026-06).** The LoRA params are now passed as FSDP `ignored_params` to every wrap that
+encloses an experts module, so they stay **replicated (un-sharded)**. `lora.Bgu[e]` then indexes a plain
+local full tensor and the gradient accumulates normally; DP correctness is restored by a manual
+`all_reduce(AVG)` of the LoRA grads each step (the reduce-scatter FSDP would otherwise do). After wrap
+the ignored params are moved to GPU (FSDP leaves them on their CPU origin) and they start bitwise-equal
+across ranks (same `torch.manual_seed(0)` at attach). LoRA is ~0.9 GB at rank 16, so replication is cheap.
+
+**Smoke result (Qwen3.6-35B-A3B, 4×H100, `--checkpoint 0 --max-len 1024 --smoke 2`):**
+```
+step0 kl=20.8763  grad(LoRA,avg)=1.646e+03   <- nonzero (was exactly 0)
+step 0/2 kl=20.8763 ema=20.8763
+step 1/2 kl=20.8732 ema=20.8760
+SMOKE OK
+```
+All three Phase-C blockers are now cleared at 35B (`CheckpointError` + OOM via `--checkpoint 0` + dynamic
+loop; zero-grad via replicated LoRA). OPD trains end-to-end — the 122B never reached a single step. The
+full recovery run (gen→train→merge→re-quantize→re-eval to measure truncation/accuracy recovery) is now
+runnable; only short-seq memory headroom (no-checkpoint backward holds the un-checkpointed backbone at
+the chosen `--max-len`) bounds the sequence length per step.
 
 ## Target-set filter (user directive: only pursue benchmarks the TEACHER beats Gemma -> recoverable wins)
 Keep ONLY where BF16 teacher > Gemma-4 AND student lags (quant-recoverable):

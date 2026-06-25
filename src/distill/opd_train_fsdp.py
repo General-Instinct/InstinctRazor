@@ -48,7 +48,7 @@ def text_backbone(model):
     return base, lm
 
 
-def wrap_fsdp_opd(model, backbone, lmhead, cpu_offload=True):
+def wrap_fsdp_opd(model, backbone, lmhead, lora_params=(), cpu_offload=True):
     """fully_shard inner->outer. CRUCIAL: backbone (embed+norm) and lmhead are their OWN units so calling them
     separately in opd_loss unshards them via their hooks. lmhead reshard_after_forward=False -> gathered once,
     reused across the VCHUNK loop (no per-chunk all-gather).
@@ -56,9 +56,16 @@ def wrap_fsdp_opd(model, backbone, lmhead, cpu_offload=True):
     GPU per unit-use, freeing ~61GB/GPU of VRAM for ACTIVATIONS. That lets us DISABLE gradient checkpointing
     (see main) -> no recompute -> the nondeterministic-recompute CheckpointError (moe_lora's dynamic per-expert
     loop) cannot fire. The patched per-expert STE forward is unchanged (it still sees the full all-gathered
-    tensor on GPU). Trades param-fetch speed for correctness — fine for a short OPD round."""
+    tensor on GPU). Trades param-fetch speed for correctness — fine for a short OPD round.
+    lora_params: the per-expert LoRA params are passed as FSDP `ignored_params` to EVERY wrap that encloses an
+    experts module (experts/decoder/root) so they stay UN-sharded (replicated full tensors). Rationale: the
+    patched forward indexes them per-expert (lora.Bgu[e]); if FSDP shards them along dim-0 (E), the gather
+    happens for forward but grad does NOT flow back to the sharded DTensor on backward -> zero LoRA grad. Kept
+    replicated, lora.Bgu[e] is a plain local index and grad accumulates normally; DP correctness is restored by
+    a manual all-reduce(AVG) of the LoRA grads in the train loop (see main). LoRA is ~0.9GB at rank 16."""
+    ign = set(lora_params)
     mp = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
-    kw = dict(mp_policy=mp, reshard_after_forward=True)
+    kw = dict(mp_policy=mp, reshard_after_forward=True, ignored_params=ign)
     if cpu_offload:
         from torch.distributed.fsdp import CPUOffloadPolicy
         kw["offload_policy"] = CPUOffloadPolicy()
@@ -131,7 +138,16 @@ def main():
     model.enable_input_require_grads()   # frozen base + reentrant ckpt: make embed output require grad so grad reaches LoRA
     backbone, lmhead = text_backbone(model)
     log(f"[fsdp-opd] loaded+attached on CPU ({time.time()-t0:.0f}s)")
-    wrap_fsdp_opd(model, backbone, lmhead, cpu_offload=bool(args.cpu_offload))
+    # LoRA params are FSDP-IGNORED (replicated, not sharded) so per-expert indexing keeps the autograd path.
+    wrap_fsdp_opd(model, backbone, lmhead, lora_params=trainable, cpu_offload=bool(args.cpu_offload))
+    # FSDP leaves ignored params on their original device (CPU); the patched forward runs on GPU -> move them.
+    # Identical across ranks (same torch.manual_seed(0) at attach), so the replicas start bitwise-equal; the
+    # per-step grad all-reduce(AVG) in the train loop keeps them in lockstep.
+    for p in trainable:
+        p.data = p.data.to(dev)
+        if p.grad is not None: p.grad = p.grad.to(dev)
+    log(f"[fsdp-opd] LoRA kept replicated (FSDP-ignored) on {dev}: "
+        f"{sum(p.numel() for p in trainable)/1e6:.1f}M params x{world} ranks")
     # ================= KNOWN BLOCKER: P4 OPD round NOT run (see RESULTS.md "P4") =================
     # The monkeypatched dynamic per-expert MoE forward + gradient-checkpointing RECOMPUTE are fundamentally
     # incompatible, root-caused over 10 --smoke 2 runs (base loads+shards fine via CPU-offload at 3.6GB/GPU):
@@ -238,13 +254,19 @@ def main():
             loss = opd_loss(ids, plen, ti, tl)
             (loss / args.accum).backward()   # SAC (above) controls save-vs-recompute deterministically
             acc += loss.item() / args.accum
+        # LoRA is FSDP-IGNORED (replicated), so FSDP does NOT reduce its grads. Each rank trained a disjoint
+        # rollout slice -> manually all-reduce(AVG) the LoRA grads so every replica steps on the global grad
+        # and stays in lockstep (the DP correctness FSDP would otherwise provide via reduce-scatter).
+        for p in trainable:
+            if p.grad is not None:
+                dist.all_reduce(p.grad, op=dist.ReduceOp.AVG)
         if step == 0:
-            def _loc(g): return g.to_local() if hasattr(g, "to_local") else g
-            gsum = torch.tensor([sum(_loc(p.grad).abs().sum().item() for p in trainable if p.grad is not None)], device=dev)
-            dist.all_reduce(gsum)
+            # per-rank local grad magnitude BEFORE the AVG above already mutated nothing destructive (AVG keeps
+            # magnitude scale); confirms grad actually reached the (replicated) LoRA — the old failure was 0.
+            gsum = torch.tensor([sum(p.grad.abs().sum().item() for p in trainable if p.grad is not None)], device=dev)
             mem = [torch.cuda.memory_allocated(i) / 1e9 for i in range(torch.cuda.device_count())]
-            log(f"[fsdp-opd] step0 kl={acc:.4f} grad(all-shard)={float(gsum):.3e} mem(GB)={['%.1f' % m for m in mem]}")
-            assert float(gsum) > 0, "zero LoRA grad — STE/checkpointing broken under FSDP"
+            log(f"[fsdp-opd] step0 kl={acc:.4f} grad(LoRA,avg)={float(gsum):.3e} mem(GB)={['%.1f' % m for m in mem]}")
+            assert float(gsum) > 0, "zero LoRA grad — STE/LoRA path severed under FSDP"
         torch.nn.utils.clip_grad_norm_(trainable, 1.0); opt.step()
         run = 0.9 * run + 0.1 * acc if step else acc
         if step % 5 == 0 or step == nsteps - 1:
