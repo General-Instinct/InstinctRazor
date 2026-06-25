@@ -217,6 +217,10 @@ def main():
     # long 2048-token samples while another got short ones -> 10-min timeout). Deterministic across epochs.
     samples.sort(key=lambda s: len(s[0]))
     mine = samples[rank::world]                   # disjoint, length-balanced DP slice
+    # equalize per-rank count: nsteps is derived from len(mine), so unequal counts (e.g. 160 vs 159 when the
+    # total isn't divisible by world) make ranks run a different number of steps -> the longer ranks hang at
+    # the final collective. Drop the <world remainder so every rank does identical steps.
+    mine = mine[: len(samples) // world]
     log(f"[fsdp-opd] {len(samples)} total rollouts -> {len(mine)}/rank (DP x{world})")
     assert mine, "no samples on this rank"
 
