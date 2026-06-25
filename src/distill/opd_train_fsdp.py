@@ -107,7 +107,11 @@ def main():
     args = ap.parse_args()
 
     local = int(os.environ["LOCAL_RANK"]); rank = int(os.environ["RANK"]); world = int(os.environ["WORLD_SIZE"])
-    torch.cuda.set_device(local); dist.init_process_group("nccl")
+    from datetime import timedelta
+    # generous collective timeout: variable-length rollouts + checkpointed recompute make per-step time vary,
+    # so a straggler rank must not trip the default 10-min NCCL timeout (length-balanced sharding below also
+    # minimizes the imbalance; the timeout is the safety net for a single pathologically long sample).
+    torch.cuda.set_device(local); dist.init_process_group("nccl", timeout=timedelta(minutes=30))
     # Deterministic algorithms so gradient-checkpointing RECOMPUTE is bit-identical to the forward -> the MoE
     # router's top-k (and thus expert dispatch shapes) match on recompute. Without this, bf16 GEMM nondeterminism
     # flips routing in recompute -> IndexAddBackward shape mismatch. warn_only=True: ops lacking a deterministic
@@ -207,8 +211,12 @@ def main():
         ids = list(r["prompt_ids"]) + list(r["gen_token_ids"]); plen = len(r["prompt_ids"])
         if len(ids) > args.max_len or len(ids) <= plen + 1: continue
         samples.append((ids, plen, np.asarray(entry["t_idx"]), np.asarray(entry["t_lp"])))
-    random.Random(0).shuffle(samples)
-    mine = samples[rank::world]                   # disjoint DP slice
+    # length-balanced DP shard: sort by token length, then stripe across ranks. Each rank gets the SAME length
+    # distribution AND step k across ranks sees adjacent-length samples -> balanced per-step work, so no rank
+    # straggles far enough to trip the NCCL collective timeout (the prior random stripe gave one rank a run of
+    # long 2048-token samples while another got short ones -> 10-min timeout). Deterministic across epochs.
+    samples.sort(key=lambda s: len(s[0]))
+    mine = samples[rank::world]                   # disjoint, length-balanced DP slice
     log(f"[fsdp-opd] {len(samples)} total rollouts -> {len(mine)}/rank (DP x{world})")
     assert mine, "no samples on this rank"
 
