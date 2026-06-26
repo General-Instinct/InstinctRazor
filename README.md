@@ -102,23 +102,15 @@ Same pipeline for all; one adapter per family is the only per-model code.
 
 ## Deploy (GGUF)
 
+`razor --quant <gguf-type>` already emits a `.gguf` for any model. The script below is the specific recipe
+that reproduces the shipped **122B IQ3_XXS protected** artifact (tensor-type recipe + imatrix). Both use the
+llama.cpp tool from [Install](#install).
+
 ```bash
 BASE_TYPE=IQ3_XXS bash pipelines/pack_gguf.sh
 ```
 
 122B IQ3_XXS (48 GiB): MMLU-Pro 90.7 · GPQA 80.8 · 115.9 tok/s on 1×H100 (45.7 with expert offload).
-
-## Layout
-
-```text
-razor / razor.py    unified CLI            pipelines/   smoke, quantize, eval, pack_gguf, distill, q36_recovery
-src/quant/          adapters + quantizer   src/eval/    vllm_eval8, loaders, multimodal
-src/distill/        OPD (gen/score/train/merge)         docs/ configs/ results/
-```
-
-## Docs
-
-[EVAL_PROTOCOL](docs/EVAL_PROTOCOL.md) · [MOE_FINDINGS](docs/MOE_FINDINGS.md) · [MOE_PIPELINE](docs/MOE_PIPELINE.md) · [OPD_INTEGRATION](docs/OPD_INTEGRATION.md) · [RESULTS](results/RESULTS.md)
 
 ## Citation
 
