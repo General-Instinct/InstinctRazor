@@ -128,6 +128,7 @@ seq 2048, 2 epochs, rank-16 per-expert LoRA, reverse-KL.
 | baseline (3b student) | 68.7 | 88.8 | 64/198 | 81.7 | 90.1 | 19/120 |
 | on-policy OPD         | 61.1 | 90.5 | 72/198 | 56.7 | 93.1 | 48/120 |
 | teacher-CoT OPD       | 66.2 | 92.5 | 65/198 | 55.8 | 90.1 | 49/120 |
+| complete-traj OPD     | 77.3 | 88.1 | 30/198 | 89.2 | 89.9 |  1/120 |
 
 **Finding: naive OPD lifts per-token reasoning but REGRESSES truncation — because the training rollouts
 are themselves mostly truncated.** Both runs raised `finished-acc` (GPQA 88.8→90.5/92.5, the recovered
@@ -144,3 +145,10 @@ now affordable — the memory fixes leave headroom to train at seq 4–8k) and f
 concluded (`finish_reason != "length"`, `opd_train_fsdp.py --finished-only 1`). This is the only way to
 supply real conclusion/EOS signal. Run it via:
 `GEN_MODEL=$TEA GENTOK=8192 MAXLEN=8192 FINISHED_ONLY=1 ... bash pipelines/q36_recovery.sh`.
+
+**RESULT — the fix works.** Generating at 8192 (424/768 finished vs ~80 before) and training only on the
+**313/209 concluded** trajectories (capped at seq 3584 for memory) recovered the gap: **MATH-500 81.7→89.2,
+truncation 19→1 (teacher level); GPQA 68.7→77.3, truncation 64→30**. The two variants trained on
+~89%-truncated rollouts regressed (61.1/56.7) — so the decisive lever is trajectory COMPLETENESS, not the
+policy source or quant algorithm. The 3b student's truncation damage is recoverable with on-policy
+distillation, provided you distill conclusions rather than cutoffs.

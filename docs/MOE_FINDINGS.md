@@ -416,5 +416,7 @@ it **worse**: GPQA acc 68.7→61.1, MATH 81.7→56.7, truncation up — while `f
 accurate when concluding). Cause: at the gen budget, ~89% of rollouts (student AND teacher-with-thinking)
 were truncated, so distilling them reinforces "keep generating." teacher-CoT partially recovered GPQA
 truncation (72→65 ≈ baseline) where CoT is short, confirming the mechanism. Fix = `--finished-only` +
-long gen budget (train only on rollouts that emit `\boxed{}`/EOS). Full tables + design:
+long gen budget (train only on rollouts that emit `\boxed{}`/EOS). **This works:** complete-trajectory OPD
+recovered **MATH-500 81.7→89.2 (trunc 19→1, = teacher) and GPQA 68.7→77.3 (trunc 64→30)** — quantization's
+3-bit damage is mostly truncation and is recoverable by distilling conclusions. Full tables + design:
 `docs/OPD_INTEGRATION.md` → "Recovery results".
