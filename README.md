@@ -1,19 +1,24 @@
 # InstinctRazor
 
-**A framework for sub-4-bit quantization — and recovery — of Mixture-of-Experts LLMs.**
+**Bring any model. Quantize it sub-4-bit. Recover the loss with on-policy distillation.**
 
-InstinctRazor takes any Hugging Face MoE model and produces a deployment-ready low-bit artifact whose
-capability stays close to the BF16 teacher. It is **model-general** (a `ModelAdapter` registry keyed on
-`config.model_type`), **method-agnostic** (our calibration-free clip-search, plus AWQ / GPTQ / RTN for
-comparison), and ships an **evaluation harness** and an optional **on-policy distillation** recovery stage —
-all behind one command:
+InstinctRazor is a model-general framework: point it at a Hugging Face checkpoint and it runs the **same two
+stages** on it — **quantize** to a deployment-ready sub-4-bit artifact, then **recover** the quantization
+loss via on-policy distillation (OPD) from the BF16 teacher — leaving the footprint unchanged. Both stages
+are driven by one `ModelAdapter` abstraction (keyed on `config.model_type`), so supporting a new family is a
+small adapter, never a fork of the pipeline.
 
 ```bash
-./razor --model Qwen/Qwen3.6-35B-A3B --quant instinct-iq3 --eval mmlu_pro,gpqa,math500
+./razor --model <any-hf-model> --quant instinct-iq3 --recover opd --eval mmlu_pro,gpqa,math500
 ```
 
-The flagship artifact — **Qwen3.5-122B-A10B compressed from ~245 GB to a ~47 GB deployable GGUF** that fits
-on a single 80 GB GPU — is one output of this framework, reproducible from the original BF16 checkpoint.
+Any model in → quantized + OPD-recovered → benchmarked, at the same deployment footprint. The quantizer is
+model-agnostic across MoE layouts and dense models alike; the OPD recovery stage is wired first-class for
+fused-expert MoE (Qwen3.5 / Qwen3.6 today) and extends to other families through the same adapter interface.
+
+Two results from the framework:
+- **Quantize** — Qwen3.5-122B-A10B compressed from ~245 GB to a ~47 GB deployable GGUF that fits on one 80 GB GPU.
+- **Recover** — on Qwen3.6-35B-A3B, OPD took the 3-bit student's **MATH-500 81.7 → 89.2** (truncation 19 → 1, matching the teacher) and **GPQA 68.7 → 77.3**, at no extra deployment size.
 
 - Hugging Face: https://huggingface.co/General-Instinct/InstinctRazor-Qwen3.5-122B-A10B-GGUF
 - Deployable artifact: 48 GB IQ3_XXS GGUF
@@ -22,14 +27,16 @@ on a single 80 GB GPU — is one output of this framework, reproducible from the
 
 ## What the framework does
 
-| Stage | Capability |
+The two core stages run on **any model you bring in**; the rest support them.
+
+| Stage | What it does |
 |-------|-----------|
-| **Quantize** | INT3 routed experts + INT4 backbone + BF16 protected path (router / norms / vision). Symmetric per-block (group-128) clip-search; no calibration data required. |
-| **Generalize** | One quant/probe/eval core works across MoE families via `ModelAdapter` (`src/quant/model_adapters.py`), keyed on `config.model_type` — fused-expert (Qwen3.5/3.6) and separate-expert (OLMoE, generic) layouts. |
-| **Compare** | Drop-in AWQ / GPTQ / RTN / ParoQuant paths to benchmark our quantization against the field at matched bits (`src/quant/moe_compare.py`, `moe_quant_method.py`). |
-| **Deploy** | llama.cpp GGUF conversion + quantization for real low-bit inference, or a dequantized-BF16 *capability-ceiling* checkpoint for clean vLLM evaluation. |
-| **Evaluate** | Built-in harness: MMLU-Pro, GPQA-Diamond, MMMLU, MATH-500, AIME, LiveCodeBench, HumanEval, MBPP, HLE, and multimodal (MMMU / MMMU-Pro / MATH-Vision). |
-| **Recover** *(optional)* | On-policy distillation (Lightning-OPD): close quantization gaps by distilling the BF16 teacher into a footprint-preserving per-expert LoRA, then re-quantizing. FSDP2, 4-GPU. |
+| **① Quantize** | Any HF model → sub-4-bit: INT3 routed experts + INT4 backbone + BF16 protected path (router / norms / vision). Symmetric per-block (group-128) clip-search; no calibration data. Model-general across fused-expert MoE, separate-expert MoE, and dense layouts (the quant math is shape-agnostic). |
+| **② Recover (OPD)** | Quantize, then close the gap: distill the BF16 teacher into a footprint-preserving per-expert LoRA on the quantized student and re-quantize — same deploy size, capability back toward the teacher. FSDP2, 4-GPU; recipe = on-policy rollouts → teacher top-k logprobs → reverse-KL train on *completed* trajectories. |
+| Generalize | One adapter per family (`ModelAdapter`, keyed on `config.model_type`) wires both stages — `qwen3_5_moe`, `olmoe`, generic fallback. Adding a model is an adapter, not a fork. |
+| Compare | Benchmark our quantization vs AWQ / GPTQ / RTN / ParoQuant at matched bits (`moe_compare.py`, `moe_quant_method.py`). |
+| Deploy | llama.cpp GGUF for real low-bit inference, or a dequantized-BF16 *capability-ceiling* checkpoint for clean vLLM eval. |
+| Evaluate | Built-in harness: MMLU-Pro, GPQA-Diamond, MMMLU, MATH-500, AIME, LiveCodeBench, HumanEval, MBPP, HLE, and multimodal (MMMU / MMMU-Pro / MATH-Vision). |
 
 ---
 
@@ -68,17 +75,23 @@ recovery pipeline) behind a single entrypoint.
 
 ## Supported models (`ModelAdapter`)
 
-The quant/probe/alloc/eval core is decoupled from model-specific naming via a registry keyed on
-`config.model_type`. Adding a new MoE family is a single adapter, not a fork of the pipeline.
+Every model flows through the **same pipeline** — `quantize` for all, `OPD recover` through the same adapter
+interface. One adapter per family (keyed on `config.model_type`) is the only per-model code; the pipeline
+itself never forks.
 
-| `model_type` | Adapter | Expert layout | OPD recovery | Examples |
-|--------------|---------|---------------|:---:|----------|
-| `qwen3_5_moe` | `Qwen35MoeAdapter` | fused 3D | ✅ | Qwen3.5-122B-A10B, Qwen3.6-35B-A3B |
-| `olmoe` | `OlmoeAdapter` | fused 3D | — | OLMoE-1B-7B |
-| *(fallback)* | `GenericMoEAdapter` | separate per-expert `nn.Linear` | — | unrecognized MoE (degrades gracefully) |
+| `model_type` | Adapter | Quantize | OPD recover | Examples |
+|--------------|---------|:---:|:---:|----------|
+| `qwen3_5_moe` | `Qwen35MoeAdapter` | ✅ | ✅ | Qwen3.5-122B-A10B, Qwen3.6-35B-A3B |
+| `olmoe` | `OlmoeAdapter` | ✅ | adapter hook* | OLMoE-1B-7B |
+| *(fallback)* | `GenericMoEAdapter` | ✅ | adapter hook* | any unrecognized MoE / dense model |
+
+\* Quantization is universal today. OPD is first-class for fused-expert MoE (Qwen3.5/3.6); enabling it for a
+new family means implementing that adapter's expert-forward hook (`supports_opd` + the per-expert LoRA path)
+— the FSDP training, the distillation recipe, merge, and eval are all shared and model-independent.
 
 The quant math (`_int_perblock` / `fakequant` / `ste_quant` / `apply_ptq`) is shape-agnostic — it groups along
-the contraction axis and works identically on 2D `[out,in]` and fused 3D `[E,out,in]` expert tensors.
+the contraction axis and works identically on 2D `[out,in]` and fused 3D `[E,out,in]` tensors, which is what
+makes "any model in" hold for the quantize stage.
 
 ---
 
