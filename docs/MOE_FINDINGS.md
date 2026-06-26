@@ -407,3 +407,14 @@ explains much of the MATH gap; int3 is outside ParoQuant's 4-bit design point; n
 Net: **no method dominates at int3 — it's a wash, and the real levers stay the 4th bit + truncation
 recovery, not the quant algorithm.** Reproduce: `torchrun --nproc_per_node=8 src/quant/paro_optimize_ddp.py
 --n-bit 3 ...` then `python -m paroquant.cli.convert --mode pseudo`.
+
+## F14 — OPD truncation recovery: train on COMPLETE trajectories, not truncated ones
+
+The 3b student's gap to the BF16 teacher is mostly **truncation** (GPQA trunc 64/198 vs teacher 11; MATH
+19/120 vs 1), not capability (`finished-acc` is already ~teacher-level). Naive on-policy distillation made
+it **worse**: GPQA acc 68.7→61.1, MATH 81.7→56.7, truncation up — while `finished-acc` *rose* (more
+accurate when concluding). Cause: at the gen budget, ~89% of rollouts (student AND teacher-with-thinking)
+were truncated, so distilling them reinforces "keep generating." teacher-CoT partially recovered GPQA
+truncation (72→65 ≈ baseline) where CoT is short, confirming the mechanism. Fix = `--finished-only` +
+long gen budget (train only on rollouts that emit `\boxed{}`/EOS). Full tables + design:
+`docs/OPD_INTEGRATION.md` → "Recovery results".

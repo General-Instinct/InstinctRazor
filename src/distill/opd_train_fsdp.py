@@ -101,6 +101,7 @@ def main():
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--max-len", type=int, default=8192)
     ap.add_argument("--reverse", type=int, default=1)
+    ap.add_argument("--finished-only", type=int, default=0)  # train only on rollouts that concluded (finish_reason!=length) -> real conclusion/EOS signal, avoids reinforcing verbosity
     ap.add_argument("--ckpt-every", type=int, default=0)   # save adapter every N steps (0=only at end)
     ap.add_argument("--cpu-offload", type=int, default=0)  # CPU-offload frozen base (slow per-step fetch + 1.65x-mem pathology for frozen params). Default OFF: base stays GPU-resident (~17.5GB/GPU) -> compute-bound, full GPU util
     ap.add_argument("--ckpt-experts", type=int, default=1) # checkpoint the expert body (recompute reconstructed Wgu/Wdn on backward -> frees ~64GB). NOTE: fragile under FSDP2 (recompute re-triggers an all-gather during backward -> deadlock); prefer --fast
@@ -220,14 +221,23 @@ def main():
     # ---- load rollouts + teacher logprobs aligned by (pid,k); DP-shard across ranks ----
     npz = np.load(args.teacher_lp, allow_pickle=True)
     ro = {(r["pid"], r["k"]): r for r in (json.loads(l) for l in open(args.rollouts))}
-    samples = []
+    samples = []; n_trunc_skipped = 0
     for entry in npz["records"]:
         key = (int(entry["pid"]), int(entry["k"]))
         if key not in ro: continue
         r = ro[key]
+        # --finished-only: train ONLY on rollouts that CONCLUDED (finish_reason != "length"). Distilling
+        # truncated traces (no \boxed{}/EOS) teaches the student to keep generating -> reinforces verbosity ->
+        # truncation goes UP (measured: on-policy & teacher-CoT both regressed because ~89% of rollouts were
+        # truncated at the gen budget). Finished-only gives real conclusion/EOS signal. Pair with a long gen
+        # budget so enough rollouts finish.
+        if args.finished_only and r.get("finish_reason") == "length":
+            n_trunc_skipped += 1; continue
         ids = list(r["prompt_ids"]) + list(r["gen_token_ids"]); plen = len(r["prompt_ids"])
         if len(ids) > args.max_len or len(ids) <= plen + 1: continue
         samples.append((ids, plen, np.asarray(entry["t_idx"]), np.asarray(entry["t_lp"])))
+    if args.finished_only:
+        log(f"[fsdp-opd] finished-only: kept {len(samples)} concluded rollouts, skipped {n_trunc_skipped} truncated")
     # length-balanced DP shard: sort by token length, then stripe across ranks. Each rank gets the SAME length
     # distribution AND step k across ranks sees adjacent-length samples -> balanced per-step work, so no rank
     # straggles far enough to trip the NCCL collective timeout (the prior random stripe gave one rank a run of

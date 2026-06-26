@@ -116,3 +116,31 @@ Keep ONLY where BF16 teacher > Gemma-4 AND student lags (quant-recoverable):
 DROP (teacher cannot beat Gemma → no recoverable win): BBEH (teacher 62 < 74.4), LiveCodeBench (Qwen official 78.9 < Gemma 80), MMMU/MMMU-Pro (teacher ≈ Gemma). Already-winning (not recovery): MMLU-Pro, MMMLU.
 ⇒ Stage-2 SFT uses MATH CoT only (1090 ex; code dropped). Eval = AIME + GPQA at trunc=0 vs Gemma.
 Teacher CoT cache built: 1314 verified (1090 math kept/1500, 224 code kept — code now unused).
+
+## Recovery results — Qwen3.6-35B-A3B (2026-06, matched 32k eval budget)
+
+First end-to-end OPD recovery runs on the (now-unblocked) FSDP path. Two gen sources, both gen+train at
+seq 2048, 2 epochs, rank-16 per-expert LoRA, reverse-KL.
+
+| model | GPQA acc | finished-acc | trunc | MATH-500 acc | finished-acc | trunc |
+|-------|---------:|-------------:|------:|-------------:|-------------:|------:|
+| teacher (BF16)        | 84.3 | 88.8 | 11/198 | 90.0 | 90.8 |  1/120 |
+| baseline (3b student) | 68.7 | 88.8 | 64/198 | 81.7 | 90.1 | 19/120 |
+| on-policy OPD         | 61.1 | 90.5 | 72/198 | 56.7 | 93.1 | 48/120 |
+| teacher-CoT OPD       | 66.2 | 92.5 | 65/198 | 55.8 | 90.1 | 49/120 |
+
+**Finding: naive OPD lifts per-token reasoning but REGRESSES truncation — because the training rollouts
+are themselves mostly truncated.** Both runs raised `finished-acc` (GPQA 88.8→90.5/92.5, the recovered
+model is *more accurate when it concludes*) but raised truncation, so raw acc fell. Root cause: at the
+1920-token gen budget, **~89% of rollouts were truncated for BOTH the student (686/768) AND the BF16
+teacher-with-thinking (683/768)** — the gen budget, not the model, is the binding constraint. Distilling
+trajectories that never emit `\boxed{}`/EOS teaches the student to keep generating → verbosity ↑ →
+truncation ↑. teacher-CoT partially recovered GPQA truncation (72→65 ≈ baseline 64, highest finished-acc
+92.5), confirming the mechanism: more-complete data → less verbosity reinforcement; it failed on MATH only
+because math CoT is long and still truncated at 1920.
+
+**Fix (the `--finished-only` lever): train on COMPLETE trajectories.** Generate at a long budget (8–16k;
+now affordable — the memory fixes leave headroom to train at seq 4–8k) and filter to rollouts that
+concluded (`finish_reason != "length"`, `opd_train_fsdp.py --finished-only 1`). This is the only way to
+supply real conclusion/EOS signal. Run it via:
+`GEN_MODEL=$TEA GENTOK=8192 MAXLEN=8192 FINISHED_ONLY=1 ... bash pipelines/q36_recovery.sh`.
