@@ -10,7 +10,6 @@ all behind one command:
 
 ```bash
 ./razor --model Qwen/Qwen3.6-35B-A3B --quant instinct-iq3 --eval mmlu_pro,gpqa,math500
-#        HF model  ───────────────►  quantize  ───────►  .gguf  ───────►  benchmarked
 ```
 
 The flagship artifact — **Qwen3.5-122B-A10B compressed from ~245 GB to a ~47 GB deployable GGUF** that fits
@@ -41,21 +40,14 @@ whole framework (download, the model-general quantizer, llama.cpp convert+quanti
 recovery pipeline) behind a single entrypoint.
 
 ```bash
-# HF model -> deployable 3-bit GGUF (MoE-aware "InstinctRazor" protected recipe)
 ./razor --model Qwen/Qwen3.6-35B-A3B --quant instinct-iq3 --out runs/q36
 
-# HF model -> standard llama.cpp 4-bit GGUF, then eval on two benchmarks
-./razor --model meta-llama/Llama-3.1-8B-Instruct --quant Q4_K_M \
-        --eval mmlu_pro,gpqa --budget 32k
+./razor --model meta-llama/Llama-3.1-8B-Instruct --quant Q4_K_M --eval mmlu_pro,gpqa --budget 32k
 
-# Quick eval (cap samples) — handy for a smoke
 ./razor --model Qwen/Qwen3-0.6B --quant Q4_K_M --eval mmlu_pro --eval-n 16 --eval-budget 2048
 
-# Research path: our fake-quant capability-ceiling checkpoint (no GGUF), eval in vLLM
-./razor --model Qwen/Qwen3.6-35B-A3B --recipe awq --expert-bits 3 --no-gguf \
-        --eval mmlu_pro,gpqa,math500
+./razor --model Qwen/Qwen3.6-35B-A3B --recipe awq --expert-bits 3 --no-gguf --eval mmlu_pro,gpqa,math500
 
-# Recovery: on-policy distillation of a quantized student from the BF16 teacher (truncation/accuracy recovery)
 ./razor --model Qwen/Qwen3.6-35B-A3B --recover opd --student models/q36_ptq3b_clip --recover-smoke
 ```
 
@@ -146,9 +138,11 @@ recover  : pipelines/q36_recovery.sh  gen -> score -> FSDP train -> merge -> re-
 ```bash
 python3.12 -m venv vllm_venv && source vllm_venv/bin/activate && pip install -r requirements.txt
 MOE_LOWBIT_VENV=$PWD/vllm_venv source env.sh
-bash pipelines/smoke.sh           # expect: SMOKE OK
-bash pipelines/smoke_moe.sh       # separate-expert (OLMoE) quant-sanity
+bash pipelines/smoke.sh
+bash pipelines/smoke_moe.sh
 ```
+
+`smoke.sh` prints `SMOKE OK`; `smoke_moe.sh` runs the separate-expert (OLMoE) quant-sanity check.
 
 ### Reproduce the 122B result
 
@@ -180,9 +174,11 @@ See `docs/OPD_INTEGRATION.md` for the design, the FSDP details, and current find
 on-policy-vs-teacher-CoT trade-off in truncation recovery).
 
 ```bash
-bash pipelines/distill.sh --smoke    # FSDP blocker smoke (prints SMOKE OK)
-bash pipelines/distill.sh            # full gen -> score -> train -> merge
+bash pipelines/distill.sh --smoke
+bash pipelines/distill.sh
 ```
+
+`--smoke` runs the 2-step FSDP blocker check; without it, the full gen → score → train → merge runs.
 
 ---
 
@@ -193,8 +189,10 @@ measure capability without kernel-specific low-bit effects. Deployment uses a se
 the original BF16 weights.
 
 ```bash
-BASE_TYPE=IQ3_XXS bash pipelines/pack_gguf.sh        # -> q122_orig-IQ3XXS-protected.gguf
+BASE_TYPE=IQ3_XXS bash pipelines/pack_gguf.sh
 ```
+
+Produces `q122_orig-IQ3XXS-protected.gguf`.
 
 | Metric | Value (122B IQ3_XXS, 48.04 GiB) |
 |----------|---------|
@@ -209,15 +207,15 @@ BASE_TYPE=IQ3_XXS bash pipelines/pack_gguf.sh        # -> q122_orig-IQ3XXS-prote
 
 ```text
 InstinctRazor/
-├── razor / razor.py        # unified CLI
-├── env.sh                  # puts src/{quant,eval,distill} on PYTHONPATH (bare imports)
-├── requirements.txt        # quant/eval/recovery-A-B venv (torch + vLLM)
-├── requirements-train.txt  # FSDP train venv (torch 2.7 + flash-linear-attention)
+├── razor / razor.py        unified CLI
+├── env.sh                  PYTHONPATH for src/{quant,eval,distill}
+├── requirements.txt        quant / eval venv (torch + vLLM)
+├── requirements-train.txt  FSDP train venv (torch 2.7 + flash-linear-attention)
 ├── src/
-│   ├── quant/   # model_adapters, moe_quant, quant_save, moe_probe/alloc/study, moe_compare
-│   ├── eval/    # vllm_eval8, bench8_loaders, multimodal eval
-│   └── distill/ # opd_gen, opd_score, opd_train_fsdp, moe_lora, merge_adapter
-├── pipelines/   # smoke, quantize, eval, pack_gguf, distill, q36_recovery
+│   ├── quant/    model_adapters, moe_quant, quant_save, moe_probe/alloc/study, moe_compare
+│   ├── eval/     vllm_eval8, bench8_loaders, multimodal eval
+│   └── distill/  opd_gen, opd_score, opd_train_fsdp, moe_lora, merge_adapter
+├── pipelines/    smoke, quantize, eval, pack_gguf, distill, q36_recovery
 ├── configs/  docs/  results/  archive/
 ```
 
