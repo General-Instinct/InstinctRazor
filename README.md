@@ -105,7 +105,7 @@ Pack the deployable GGUF (reproduces the shipped 122B IQ3_XXS protected artifact
 BASE_TYPE=IQ3_XXS bash pipelines/pack_gguf.sh
 ```
 
-122B IQ3_XXS (48 GiB): MMLU-Pro 90.7 · GPQA 80.8 · 115.9 tok/s on 1×H100 (45.7 with expert offload).
+122B IQ3_XXS (48 GiB): MMLU-Pro 90.7, GPQA 80.8, 115.9 tok/s on 1×H100 (45.7 with expert offload).
 
 ### Recover — Qwen3.6-35B-A3B
 
