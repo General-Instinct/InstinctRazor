@@ -2,15 +2,17 @@
 
 **Sub-4-bit quantization + on-policy recovery for any Hugging Face model.**
 
-One pipeline, one command: any model in → **quantize** to sub-4-bit → **recover** the loss with on-policy
-distillation → deployable, at the same footprint. Every model goes through the same stages via one
-`ModelAdapter` (keyed on `config.model_type`) — a new family is an adapter, not a fork.
+Point it at any model — InstinctRazor quantizes it sub-4-bit, then recovers the loss with on-policy
+distillation. A new family is one `ModelAdapter`, not a fork.
 
 ```bash
 ./razor --model <any-hf-model> --quant instinct-iq3 --recover opd --eval mmlu_pro,gpqa,math500
 ```
 
-**Qwen3.5-122B-A10B → 47 GB GGUF** on one 80 GB GPU · OPD on Qwen3.6-35B lifts **MATH-500 81.7 → 89.2** at the same footprint. [[GGUF release](https://huggingface.co/General-Instinct/InstinctRazor-Qwen3.5-122B-A10B-GGUF)] · worked examples below.
+- **Qwen3.5-122B-A10B** → 47 GB GGUF, runs on one 80 GB GPU
+- **Qwen3.6-35B + OPD** → MATH-500 81.7 → 89.2, at the same footprint
+
+[GGUF release on Hugging Face](https://huggingface.co/General-Instinct/InstinctRazor-Qwen3.5-122B-A10B-GGUF). Worked examples below.
 
 ## Features
 
