@@ -42,6 +42,20 @@ def main():
         transformers.AutoProcessor.from_pretrained(args.model, trust_remote_code=True).save_pretrained(args.out)
     except Exception:
         pass
+    # Self-contained ckpt: explicitly copy the (image/video) PROCESSOR configs from the source snapshot.
+    # AutoProcessor.save_pretrained can silently miss these for multimodal models, and vLLM (which loads
+    # Qwen3.x-MoE via the ImageTextToText path) refuses to start without preprocessor_config.json. (This
+    # was the q36_opd_recovered eval-load failure.)
+    import shutil
+    try:
+        src = args.model if os.path.isdir(args.model) else \
+            transformers.utils.hub.snapshot_download(args.model, allow_patterns=["*processor*.json", "*.jinja"])
+    except Exception:
+        src = args.model if os.path.isdir(args.model) else None
+    for fn in ("preprocessor_config.json", "video_preprocessor_config.json", "processor_config.json"):
+        s = os.path.join(src, fn) if src else None
+        if s and os.path.isfile(s) and not os.path.isfile(os.path.join(args.out, fn)):
+            shutil.copy(s, os.path.join(args.out, fn)); print(f"[merge] copied {fn}", flush=True)
     print(f"[merge] DONE -> {args.out} ({time.time()-t0:.0f}s)", flush=True)
 
 

@@ -11,10 +11,15 @@ source env.sh >/dev/null 2>&1
 VLLM=./vllm_venv/bin/python
 TRUN=./train_venv/bin/torchrun
 TPY=./train_venv/bin/python
-S=runs/q36_opd/recovery; mkdir -p "$S" results/campaign_logs
+S="${S:-runs/q36_opd/recovery}"; mkdir -p "$S" results/campaign_logs
 STU=models/q36_ptq3b_clip
 TEA=Qwen/Qwen3.6-35B-A3B
-REC=models/q36_opd_recovered
+REC="${REC:-models/q36_opd_recovered}"
+# GEN_MODEL: who generates the rollouts. Default = the quantized student (on-policy OPD). Override to $TEA
+# for the TEACHER-CoT variant: the BF16 teacher produces CONCISE, COMPLETE trajectories (low truncation,
+# real conclusions) -> distilling those teaches the student to wrap up, the lever the on-policy run lacked
+# (on-policy trained on 89%-truncated student rollouts -> reinforced verbosity -> truncation went UP).
+GEN_MODEL="${GEN_MODEL:-$STU}"
 
 gpu_free(){ for _ in $(seq 1 60); do
   u=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null|awk '{s+=$1}END{print s+0}')
@@ -26,9 +31,9 @@ say(){ echo "[recovery $(date +%H:%M:%S)] $*"; }
 : "${GENTOK:=1920}"     # student gen cap (+prompt ~ MAXLEN). Long seq is affordable now: expert-body checkpointing
                         # frees the seq-independent ~64GB of reconstructed weights, base stays GPU-resident.
 
-say "A: student rollouts -> $S/rollouts.jsonl (max-tokens $GENTOK)"
+say "A: rollouts from $GEN_MODEL -> $S/rollouts.jsonl (max-tokens $GENTOK)"
 if [ ! -s "$S/rollouts.jsonl" ]; then gpu_free
-  CUDA_VISIBLE_DEVICES=0,1,2,3 $VLLM src/distill/opd_gen.py --model "$STU" \
+  CUDA_VISIBLE_DEVICES=0,1,2,3 $VLLM src/distill/opd_gen.py --model "$GEN_MODEL" \
     --out "$S/rollouts.jsonl" --n 384 --k 2 --max-tokens "$GENTOK" --tp 4 || { say "A FAILED"; exit 11; }
 fi
 say "A done: $(wc -l < "$S/rollouts.jsonl") rollouts"
@@ -58,11 +63,13 @@ if [ ! -d "$REC" ]; then gpu_free
 fi
 say "D done: recovered ckpt at $REC"
 
-say "E1: baseline re-eval (matched flags) gpqa,math500"
+BASE_TAG="${BASE_TAG:-q36_base_rematch}"; REC_TAG="${REC_TAG:-q36_recovered}"
+say "E1: baseline re-eval ($BASE_TAG, matched flags) gpqa,math500"
+if [ ! -s "results/vllm_eval/$BASE_TAG.json" ]; then gpu_free
+  bash pipelines/eval.sh --model "$STU" --tag "$BASE_TAG" --benchmarks gpqa,math500 || say "E1 eval returned nonzero"
+else say "E1 skipped ($BASE_TAG.json exists — reuse as matched baseline)"; fi
+say "E2: recovered eval ($REC_TAG) gpqa,math500"
 gpu_free
-bash pipelines/eval.sh --model "$STU" --tag q36_base_rematch --benchmarks gpqa,math500 || say "E1 eval returned nonzero"
-say "E2: recovered eval gpqa,math500"
-gpu_free
-bash pipelines/eval.sh --model "$REC" --tag q36_recovered --benchmarks gpqa,math500 || say "E2 eval returned nonzero"
+bash pipelines/eval.sh --model "$REC" --tag "$REC_TAG" --benchmarks gpqa,math500 || say "E2 eval returned nonzero"
 
 say "RECOVERY_PIPELINE_DONE"
