@@ -10,7 +10,7 @@ distillation → deployable, at the same footprint. Every model goes through the
 ./razor --model <any-hf-model> --quant instinct-iq3 --recover opd --eval mmlu_pro,gpqa,math500
 ```
 
-Flagship: **Qwen3.5-122B-A10B → 47 GB GGUF**, runs on a single 80 GB GPU. [[GGUF release](https://huggingface.co/General-Instinct/InstinctRazor-Qwen3.5-122B-A10B-GGUF)]
+**Qwen3.5-122B-A10B → 47 GB GGUF** on one 80 GB GPU · OPD on Qwen3.6-35B lifts **MATH-500 81.7 → 89.2** at the same footprint. [[GGUF release](https://huggingface.co/General-Instinct/InstinctRazor-Qwen3.5-122B-A10B-GGUF)] · worked examples below.
 
 ## Features
 
@@ -74,9 +74,19 @@ Same pipeline for all; one adapter per family is the only per-model code.
 
 \* Quantize is universal today; OPD is first-class for fused-expert MoE (Qwen3.5/3.6). Enabling a new family = implementing its expert-forward hook — the FSDP training, recipe, merge, and eval are shared.
 
-## Results
+## Quantization recipe
 
-**Qwen3.5-122B-A10B** — InstinctRazor (~47 GB) vs. footprint-matched Gemma-4-26B-A4B and the BF16 teacher.
+The default recipe applied to any model:
+
+| Experts | Backbone | Group | Method | Protected (BF16) | Effective bits |
+|------|------|------|------|------|------|
+| INT3 | INT4 | 128 | symmetric clip-search | router, norms, vision | ~3.05 |
+
+## Examples
+
+### Quantize — Qwen3.5-122B-A10B
+
+InstinctRazor (~47 GB) vs. footprint-matched Gemma-4-26B-A4B and the BF16 teacher.
 
 | Benchmark | Teacher | InstinctRazor | Gemma-4-26B-A4B |
 |------|------|------|------|
@@ -87,31 +97,23 @@ Same pipeline for all; one adapter per family is the only per-model code.
 | LiveCodeBench v6 | 65.5 | 57.0 | 66.0 |
 | HLE (no tools) | 18.0 | 13.3 | 12.3 |
 
-**Recovery (Qwen3.6-35B-A3B)** — OPD on the 3-bit student, matched 32k eval. Gaps are mostly *truncation*; OPD on completed trajectories recovers them at no extra footprint.
-
-| | GPQA acc | trunc | MATH-500 acc | trunc |
-|------|------|------|------|------|
-| baseline (3b) | 68.7 | 64/198 | 81.7 | 19/120 |
-| **+ OPD** | **77.3** | **30/198** | **89.2** | **1/120** |
-| teacher (BF16) | 84.3 | 11/198 | 90.0 | 1/120 |
-
-## Quantization recipe
-
-| Experts | Backbone | Group | Method | Protected (BF16) | Effective bits |
-|------|------|------|------|------|------|
-| INT3 | INT4 | 128 | symmetric clip-search | router, norms, vision | ~3.05 |
-
-## Deploy (GGUF)
-
-`razor --quant <gguf-type>` already emits a `.gguf` for any model. The script below is the specific recipe
-that reproduces the shipped **122B IQ3_XXS protected** artifact (tensor-type recipe + imatrix). Both use the
-llama.cpp tool from [Install](#install).
+Pack the deployable GGUF (reproduces the shipped 122B IQ3_XXS protected artifact — tensor-type recipe + imatrix; needs llama.cpp from [Install](#install)):
 
 ```bash
 BASE_TYPE=IQ3_XXS bash pipelines/pack_gguf.sh
 ```
 
 122B IQ3_XXS (48 GiB): MMLU-Pro 90.7 · GPQA 80.8 · 115.9 tok/s on 1×H100 (45.7 with expert offload).
+
+### Recover — Qwen3.6-35B-A3B
+
+OPD on the 3-bit student (matched 32k eval). The gap is mostly *truncation*; distilling completed teacher trajectories recovers it at no extra footprint.
+
+| | GPQA acc | trunc | MATH-500 acc | trunc |
+|------|------|------|------|------|
+| baseline (3b) | 68.7 | 64/198 | 81.7 | 19/120 |
+| **+ OPD** | **77.3** | **30/198** | **89.2** | **1/120** |
+| teacher (BF16) | 84.3 | 11/198 | 90.0 | 1/120 |
 
 ## Citation
 
