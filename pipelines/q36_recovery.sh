@@ -47,7 +47,7 @@ if [ ! -e "$S/adapter/adapter.pt" ]; then gpu_free
   CUDA_VISIBLE_DEVICES=0,1,2,3 $TRUN --nproc_per_node=4 --master_port=29611 src/distill/opd_train_fsdp.py \
     --model "$TEA" --rollouts "$S/rollouts.jsonl" --teacher-lp "$S/teacher_lp.npz" --adapter-out "$S/adapter" \
     --rank 16 --scale 2.0 --bits 3.0 --group 128 --epochs 2 --accum 8 --lr 5e-5 --max-len "$MAXLEN" \
-    --ckpt-experts 1 --cpu-offload 0 --ckpt-every 10 || { say "C FAILED"; exit 13; }
+    --fast 1 --cpu-offload 0 --ckpt-every 10 || { say "C FAILED"; exit 13; }
 fi
 say "C done: adapter saved"
 
