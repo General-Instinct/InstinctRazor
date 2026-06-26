@@ -28,17 +28,18 @@ python3.12 -m venv vllm_venv && source vllm_venv/bin/activate && pip install -r 
 MOE_LOWBIT_VENV=$PWD/vllm_venv source env.sh
 ```
 
-Two optional add-ons, only if you need them:
+That core install is enough to **quantize and evaluate**. Two extra pieces, each needed only for one feature:
 
-**GGUF output** — build llama.cpp once (CPU build is enough), then point `LLAMA_CPP` at it:
+**llama.cpp** — the tool that writes `.gguf` files (used by both `razor --quant <gguf-type>` and the deploy
+script). Skip it if you only do `--recipe ... --no-gguf` eval. Build once (CPU build is enough):
 
 ```bash
 git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
 cmake -B build -DGGML_CUDA=OFF && cmake --build build -j --target llama-quantize llama-server
-export LLAMA_CPP=$PWD   # this llama.cpp dir; or just clone it to ./llama.cpp
+export LLAMA_CPP=$PWD
 ```
 
-**OPD recovery** — needs a second venv (different torch):
+**train venv** — only for OPD recovery (`--recover opd`); it needs a different torch:
 
 ```bash
 python3.12 -m venv train_venv && train_venv/bin/pip install -r requirements-train.txt
