@@ -63,7 +63,14 @@ def wrap_fsdp_opd(model, backbone, lmhead, lora_params=(), cpu_offload=True):
     happens for forward but grad does NOT flow back to the sharded DTensor on backward -> zero LoRA grad. Kept
     replicated, lora.Bgu[e] is a plain local index and grad accumulates normally; DP correctness is restored by
     a manual all-reduce(AVG) of the LoRA grads in the train loop (see main). LoRA is ~0.9GB at rank 16."""
-    ign = set(lora_params)
+    # lm_head is NOT sharded — it is replicated (added to ignored_params) and used with LOCAL weights. Why:
+    # opd_loss chunks the lm_head over generation POSITIONS (ceil(gen_len/VCHUNK) calls), and a sharded lm_head
+    # all-gathers per chunk -> the NUMBER of all-gathers is data-dependent (gen_len varies per rollout). Under
+    # DP, ranks with shorter generations issue FEWER lm_head gathers -> their FSDP collective SEQUENCE diverges
+    # from longer-generation ranks -> NCCL collective-order mismatch -> deadlock (root-caused via FlightRecorder:
+    # first divergence was an extra 127139840 = (vocab/4)*hidden lm_head gather on the longer ranks). Replicated
+    # lm_head (~1GB/GPU, frozen) does ZERO gathers -> collective sequence is data-independent -> no desync.
+    ign = set(lora_params) | set(lmhead.parameters())
     mp = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
     kw = dict(mp_policy=mp, reshard_after_forward=True, ignored_params=ign)
     if cpu_offload:
@@ -74,11 +81,6 @@ def wrap_fsdp_opd(model, backbone, lmhead, lora_params=(), cpu_offload=True):
     for m in model.modules():
         if isinstance(m, Qwen3_5MoeDecoderLayer): fully_shard(m, **kw)
     fully_shard(backbone, **kw)                                   # text decoder unit: embed + final norm
-    lmkw = dict(mp_policy=mp, reshard_after_forward=False)        # output head: keep gathered across chunks
-    if cpu_offload:
-        from torch.distributed.fsdp import CPUOffloadPolicy
-        lmkw["offload_policy"] = CPUOffloadPolicy()
-    fully_shard(lmhead, **lmkw)
     fully_shard(model, **kw)                                     # root (≈empty flat param after inner wraps)
     for m in model.modules():                                    # no prefetch: one unit resident at a time
         if hasattr(m, "set_modules_to_forward_prefetch"):
@@ -167,8 +169,11 @@ def main():
     for p in trainable:
         p.data = p.data.to(dev)
         if p.grad is not None: p.grad = p.grad.to(dev)
-    log(f"[fsdp-opd] LoRA kept replicated (FSDP-ignored) on {dev}: "
-        f"{sum(p.numel() for p in trainable)/1e6:.1f}M params x{world} ranks")
+    for p in lmhead.parameters():        # lm_head is FSDP-ignored (replicated) -> move it on-GPU too (frozen, no grad)
+        p.data = p.data.to(dev)
+    log(f"[fsdp-opd] LoRA + lm_head kept replicated (FSDP-ignored) on {dev}: "
+        f"LoRA {sum(p.numel() for p in trainable)/1e6:.1f}M + lm_head "
+        f"{sum(p.numel() for p in lmhead.parameters())/1e6:.1f}M params x{world} ranks")
     # ================= KNOWN BLOCKER: P4 OPD round NOT run (see RESULTS.md "P4") =================
     # The monkeypatched dynamic per-expert MoE forward + gradient-checkpointing RECOMPUTE are fundamentally
     # incompatible, root-caused over 10 --smoke 2 runs (base loads+shards fine via CPU-offload at 3.6GB/GPU):
