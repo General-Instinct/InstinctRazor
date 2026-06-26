@@ -28,7 +28,21 @@ python3.12 -m venv vllm_venv && source vllm_venv/bin/activate && pip install -r 
 MOE_LOWBIT_VENV=$PWD/vllm_venv source env.sh
 ```
 
-GGUF output also needs a llama.cpp build (CPU is enough): `cmake -B build -DGGML_CUDA=OFF && cmake --build build -j --target llama-quantize llama-server`, then `export LLAMA_CPP=$PWD`. OPD needs `requirements-train.txt` (separate venv).
+Two optional add-ons, only if you need them:
+
+**GGUF output** — build llama.cpp once (CPU build is enough), then point `LLAMA_CPP` at it:
+
+```bash
+git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+cmake -B build -DGGML_CUDA=OFF && cmake --build build -j --target llama-quantize llama-server
+export LLAMA_CPP=$PWD   # this llama.cpp dir; or just clone it to ./llama.cpp
+```
+
+**OPD recovery** — needs a second venv (different torch):
+
+```bash
+python3.12 -m venv train_venv && train_venv/bin/pip install -r requirements-train.txt
+```
 
 ## Usage
 
