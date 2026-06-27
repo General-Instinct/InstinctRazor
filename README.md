@@ -66,15 +66,17 @@ python3.12 -m venv train_venv && train_venv/bin/pip install -r requirements-trai
 
 ## Supported models
 
-Same pipeline for all; one adapter per family is the only per-model code.
+Same pipeline for all; one adapter (keyed on `config.model_type`) is the only per-model code. Coverage is validated against transformers 5.9 in `tests/test_adapter_coverage.py`.
 
-| `model_type` | Adapter | Quantize | OPD | Examples |
-|------|------|:---:|:---:|------|
-| `qwen3_5_moe` | `Qwen35MoeAdapter` | ✅ | ✅ | Qwen3.5-122B-A10B, Qwen3.6-35B-A3B |
-| `olmoe` | `OlmoeAdapter` | ✅ | hook* | OLMoE-1B-7B |
-| *(fallback)* | `GenericMoEAdapter` | ✅ | hook* | any unrecognized MoE / dense |
+| Family | `model_type` | Quantize | OPD |
+|------|------|:---:|:---:|
+| Qwen3.5 / 3.6 MoE | `qwen3_5_moe` | ✅ | ✅ |
+| Fused MoE | `mixtral`, `qwen2_moe`, `qwen3_moe`, `olmoe`, `deepseek_v2`, `deepseek_v3`, `phimoe`, `gpt_oss`, `minimax`, `jamba`, `qwen3_next` | ✅ | hook* |
+| Atypical MoE | `dbrx`, `granitemoe` | ✅ | hook* |
+| Dense | `llama`, `mistral`, `qwen2`, `qwen3`, `gemma2`, `gemma3`, `phi3` | ✅ | — |
+| Anything else | generic fallback | ✅ | hook* |
 
-\* Quantize is universal today; OPD is first-class for fused-expert MoE (Qwen3.5/3.6). Enabling a new family = implementing its expert-forward hook — the FSDP training, recipe, merge, and eval are shared.
+\* Quantize is universal — transformers 5.x batches every MoE family into fused expert tensors, and the gate/router is auto-protected. OPD recovery is first-class for Qwen3.5/3.6; other families need a small per-family expert-forward hook (the FSDP training, recipe, merge, and eval are all shared).
 
 ## Quantization recipe
 

@@ -88,7 +88,12 @@ class ModelAdapter:
     # ---- naming ----
     visual_re = MQ.VISUAL_RE                  # weights to never quantize (vision tower)
     router_class_names = ("Qwen3_5MoeTopKRouter",)
-    router_linear_re = None                   # separate-expert models: an nn.Linear gate to PROTECT (skip)
+    # Protect the MoE gate/router (keep it BF16 — it is tiny and sensitive). Matches the gate/router MODULE
+    # across families: `...mlp.gate`, `...mlp.router`, `...ffn.router.layer`, `...block_sparse_moe.router.layer`,
+    # `...feed_forward.router`, etc. Does NOT match `gate_proj` / `gate_up_proj` (the "_proj" suffix). This is
+    # the default for ALL adapters: in transformers 5.x several families expose the gate as an nn.Linear
+    # (phimoe, deepseek_v2, jamba) which would otherwise be silently quantized.
+    router_linear_re = re.compile(r"\.(gate|router)(\.|$)")
     embed_name_substr = "language_model"      # only quantize nn.Embedding whose name contains this; None=all
 
     # ---- config shape ----
@@ -142,7 +147,11 @@ class ModelAdapter:
 
     # ---- router detection / output ----
     def is_router(self, module):
-        return type(module).__name__ in self.router_class_names
+        """A module is a MoE router/gate if it's a known class or its class name ends Router/Routing/Gating —
+        covers MixtralTopKRouter, Qwen*MoeTopKRouter, DeepseekV3TopkRouter, GraniteMoeTopKGating, etc.
+        (Plain-nn.Linear gates have no router class; they are still PROTECTED by name via router_linear_re.)"""
+        n = type(module).__name__
+        return n in self.router_class_names or n.endswith(("Router", "Routing", "Gating"))
 
     def read_router_output(self, out):
         """Normalize the per-family router forward output to (scores, indices)."""
@@ -170,22 +179,30 @@ class ModelAdapter:
 
 
 # --------------------------------------------------------------------------- registered adapters
+# Quant coverage is broad because transformers 5.x batches almost every MoE family into FUSED 3D expert
+# tensors named `...experts.gate_up_proj` / `...experts.down_proj` — matched by the base fused_expert_suffixes.
+# So most families need only registration + config flags (flat-vs-nested, causal-vs-VLM); experts ride the
+# fused path, gate/router is protected by the base router_linear_re, and shared experts ride the backbone path.
+# Atypical expert namings (DBRX, GraniteMoE) override fused_expert_suffixes.
+
 @register("qwen3_5_moe")
 class Qwen35MoeAdapter(ModelAdapter):
-    """Qwen3.5-122B-A10B AND Qwen3.6-35B-A3B (both report model_type=qwen3_5_moe).
-    All defaults already encode the original hardcoded behavior verbatim. OPD is supported here only."""
+    """Qwen3.5-122B-A10B AND Qwen3.6-35B-A3B (both report model_type=qwen3_5_moe). The base defaults already
+    encode the original hardcoded behavior verbatim (multimodal loader, nested text_config, `language_model.*`
+    names). OPD / expert-LoRA recovery is wired here only."""
     supports_opd = True
 
 
-@register("olmoe")
-class OlmoeAdapter(ModelAdapter):
-    """allenai/OLMoE-1B-7B — text-only MoE. In transformers 5.x its experts are BATCHED into a FUSED
-    OlmoeExperts module (`...mlp.experts.gate_up_proj` [E,2I,H] / `...mlp.experts.down_proj` [E,H,I]) —
-    the SAME fused layout as Qwen3.5, so the default fused path quantizes them per-expert. Differences
-    vs Qwen: text-only loader + flat config, OlmoeTopKRouter, and no `language_model.*` name prefix."""
+@register("mixtral", "qwen2_moe", "qwen3_moe", "olmoe", "deepseek_v2", "deepseek_v3",
+          "phimoe", "gpt_oss", "minimax", "jamba", "qwen3_next")
+class FlatMoEAdapter(ModelAdapter):
+    """Fused-expert MoE that loads as a flat text CausalLM — the common case in transformers 5.x. Experts at
+    `...experts.gate_up_proj`/`down_proj` (default suffixes); gate/router (`mlp.gate`, `mlp.router`,
+    `feed_forward.router`, …) protected by the base regex; shared experts (`.shared_expert(s)`) ride the
+    backbone path. Covers Mixtral, Qwen2/3-MoE, OLMoE, DeepSeek-V2/V3, Phi-MoE, GPT-OSS, MiniMax, and the
+    hybrid Jamba / Qwen3-Next (their mamba / linear-attention layers classify as 'ssm')."""
     nested_text_config = False
     auto_model_class = "causal_lm"
-    router_class_names = ("OlmoeTopKRouter",)
     embed_name_substr = None
 
     def expert_tensor_names(self, L):
@@ -193,16 +210,49 @@ class OlmoeAdapter(ModelAdapter):
         return (f"{base}.gate_up_proj", f"{base}.down_proj")
 
 
+@register("dbrx")
+class DbrxAdapter(FlatMoEAdapter):
+    """DBRX: experts are `ffn.experts.mlp.{w1,v1,w2}` (not gate_up/down_proj); attention is `attn`; gate is
+    `ffn.router.layer` (protected by the base router regex). EXPERIMENTAL — verify expert shapes quantize."""
+    fused_expert_suffixes = ("experts.mlp.w1", "experts.mlp.v1", "experts.mlp.w2")
+
+
+@register("granitemoe")
+class GraniteMoeAdapter(FlatMoEAdapter):
+    """GraniteMoE: 3D parallel-expert tensors `block_sparse_moe.{input_linear,output_linear}` (no `.experts.`
+    segment). EXPERIMENTAL — verify expert shapes quantize."""
+    fused_expert_suffixes = ("block_sparse_moe.input_linear.weight", "block_sparse_moe.output_linear.weight",
+                             "block_sparse_moe.input_linear", "block_sparse_moe.output_linear")
+
+
+@register("llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3")
+class DenseAdapter(ModelAdapter):
+    """Dense models (no MoE): quantize all attention + MLP linears, protect norms/embeds. The quant math is
+    shape-agnostic, so this is just the backbone path with zero expert tensors."""
+    nested_text_config = False
+    auto_model_class = "causal_lm"
+    embed_name_substr = None
+    fused_expert_suffixes = ()                # no experts
+
+
+@register("gemma3")
+class Gemma3Adapter(DenseAdapter):
+    """Gemma-3 multimodal (`model_type=gemma3` -> ForConditionalGeneration): text under `model.language_model.*`,
+    vision tower protected. (The text-only `model_type=gemma3_text` uses the flat DenseAdapter.)"""
+    nested_text_config = True
+    auto_model_class = "image_text_to_text"
+    embed_name_substr = "language_model"
+
+
 class GenericMoEAdapter(ModelAdapter):
-    """Fallback for an unrecognized MoE. Handles BOTH layouts so experts are never silently skipped:
-    fused 3D tensors via iter_expert_tensors (the common transformers-5.x case), and legacy per-expert
-    nn.Linear modules via include_expert_linears. Text-only, flat config. Salience-probe support for
-    unknown router classes is a follow-up (the uniform/flat recipe needs no probe)."""
+    """Fallback for an unrecognized model_type. Handles fused experts via the default suffixes AND legacy
+    per-expert nn.Linear modules (older transformers) via include_expert_linears, so experts are never
+    silently skipped; gate/router protected by the base regex; works for dense models too (no experts found).
+    Text-only, flat config."""
     nested_text_config = False
     auto_model_class = "causal_lm"
     include_expert_linears = True
     expert_linear_re = re.compile(r"\.experts\.\d+\.")
-    router_linear_re = re.compile(r"\.(mlp|block_sparse_moe)\.gate$")
     embed_name_substr = None
 
 

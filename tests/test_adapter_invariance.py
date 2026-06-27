@@ -159,7 +159,7 @@ def test_effective_bits_flat_recipe_not_overcounted():
 def test_olmoe_fused_experts_caught():
     # OLMoE under transformers 5.x is FUSED -> experts ride iter_expert_tensors, not the linear loop
     model = build_olmoe_fused()
-    ad = MA.OlmoeAdapter()
+    ad = MA.get_adapter("olmoe")                                 # -> FlatMoEAdapter (standard fused MoE)
     et = [n for n, _ in ad.iter_expert_tensors(model)]
     assert len(et) == 2 * 2, et                              # nL x {gate_up_proj, down_proj}
     assert all(n.endswith(("experts.gate_up_proj", "experts.down_proj")) for n in et)
@@ -196,7 +196,9 @@ def test_adapter_registry_resolution():
     fused = C(); fused.model_type = "qwen3_5_moe"
     assert isinstance(MA.get_adapter(fused), MA.Qwen35MoeAdapter)
     olmoe = C(); olmoe.model_type = "olmoe"
-    assert isinstance(MA.get_adapter(olmoe), MA.OlmoeAdapter)
+    assert isinstance(MA.get_adapter(olmoe), MA.FlatMoEAdapter)        # standard fused MoE family
+    dense = C(); dense.model_type = "llama"
+    assert isinstance(MA.get_adapter(dense), MA.DenseAdapter)          # dense model
     unknown = C(); unknown.model_type = "some_new_moe"
     assert isinstance(MA.get_adapter(unknown), MA.GenericMoEAdapter)   # graceful fallback
 
