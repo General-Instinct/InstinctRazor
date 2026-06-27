@@ -16,12 +16,12 @@ distillation. A new family is one `ModelAdapter`, not a fork.
 
 ## Features
 
-- 🧩 **Any model** — fused-expert MoE, separate-expert MoE, and dense layouts (shape-agnostic quant math)
-- 🪶 **Quantize** — INT3 experts / INT4 backbone / BF16 protected (router, norms, vision); group-128 clip-search, no calibration data
-- ♻️ **Recover (OPD)** — distill the BF16 teacher into a per-expert LoRA, re-quantize; footprint unchanged
-- 📊 **Compare** — AWQ / GPTQ / RTN / ParoQuant at matched bits
-- 📦 **Deploy** — llama.cpp GGUF, or a dequantized-BF16 checkpoint for clean eval
-- ✅ **Eval** — MMLU-Pro, GPQA, MMMLU, MATH-500, AIME, LiveCodeBench, HumanEval, MBPP, HLE, multimodal
+- **Any model** — fused-expert MoE, separate-expert MoE, and dense layouts (shape-agnostic quant math)
+- **Quantize** — INT3 experts / INT4 backbone / BF16 protected (router, norms, vision); group-128 clip-search, no calibration data
+- **Recover (OPD)** — distill the BF16 teacher into a per-expert LoRA, re-quantize; footprint unchanged
+- **Compare** — AWQ / GPTQ / RTN / ParoQuant at matched bits
+- **Deploy** — llama.cpp GGUF, or a dequantized-BF16 checkpoint for clean eval
+- **Eval** — MMLU-Pro, GPQA, MMMLU, MATH-500, AIME, LiveCodeBench, HumanEval, MBPP, HLE, multimodal
 
 ## Install
 
