@@ -74,7 +74,10 @@ whose experts share the reference forward (`gate,up = (x@gate_up_proj[e]).chunk(
 out = h@down_proj[e]`, routing computed in the parent and passed as `(hidden_states, top_k_index,
 top_k_weights)`): `qwen3_5_moe` (Qwen3.5/3.6), `mixtral`, `qwen2_moe`, `qwen3_moe`, `olmoe`, `qwen3_next`,
 `deepseek_v3` (eager experts impl). **Validated:** the OPD FSDP smoke (attach → replicated-LoRA → 2 steps →
-nonzero grad → `SMOKE OK`) runs on a non-Qwen `qwen3_moe` (`Qwen3MoeExperts`/`Qwen3MoeDecoderLayer`).
+nonzero grad → `SMOKE OK`) runs on a non-Qwen `qwen3_moe` (`Qwen3MoeExperts`/`Qwen3MoeDecoderLayer`); and a
+per-family attach→forward→backward check produces nonzero LoRA grad on all six — `qwen2_moe`, `mixtral`,
+`olmoe`, `deepseek_v3` (despite its dispatcher decorator), and `qwen3_next` (with `use_cache=False`, which the
+trainer sets) — confirming each family's parent→experts call signature and expert math match the hook.
 
 Families with a DIFFERENT expert math keep `supports_opd=False` and need a per-family expert-compute:
 `gpt_oss` (transposed weights + gate/up bias + interleaved `::2`/`1::2` split + clamp±7 + custom GLU), and
