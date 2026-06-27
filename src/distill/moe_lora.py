@@ -14,16 +14,28 @@ import torch, torch.nn as nn, torch.nn.functional as F
 import moe_quant as MQ
 
 def _is_experts(m):
-    """Detect Qwen3_5MoeExperts by duck-typing (robust to FSDP2 fully_shard __class__ swap)."""
-    return hasattr(m, "gate_up_proj") and hasattr(m, "down_proj") and hasattr(m, "num_experts")
+    """Detect a fused MoE experts module by duck-typing (robust to FSDP2 fully_shard __class__ swap and
+    model-general across families: Qwen*/Mixtral/OLMoE/DeepseekV3NaiveMoe/…). The fused experts hold
+    gate_up_proj/down_proj as 3D nn.Parameters [E,...]; requiring 3D Parameters (not just hasattr) excludes
+    the shared-expert MLP, whose gate_up_proj/down_proj are nn.Linear submodules."""
+    gu = getattr(m, "gate_up_proj", None)
+    dn = getattr(m, "down_proj", None)
+    return (isinstance(gu, torch.nn.Parameter) and isinstance(dn, torch.nn.Parameter)
+            and gu.dim() == 3 and dn.dim() == 3)
+
+
+def _num_experts(m):
+    return int(getattr(m, "num_experts", None) or m.gate_up_proj.shape[0])
 
 def _assert_opd_supported():
-    """OPD/expert-LoRA monkeypatches Qwen3_5MoeExperts.forward and FSDP-wraps Qwen3_5Moe* classes, so it
-    is Qwen3.5/3.6-only. Other MoE families (incl. fused OLMoE) are a non-goal — see docs/OPD_INTEGRATION.md."""
+    """OPD/expert-LoRA hooks the fused experts module's forward (gate_up_proj/down_proj, chunk(2), act_fn,
+    routing-in-parent). Supported for any family whose adapter sets supports_opd=True — Qwen3.5/3.6, plus the
+    Group-A fused families (Mixtral, Qwen2/3-MoE, OLMoE, Qwen3-Next, DeepSeek-V3). Families with a different
+    expert math (e.g. gpt_oss: bias + clamp + interleaved GLU) are excluded. See docs/OPD_INTEGRATION.md."""
     if not MQ.active_adapter().supports_opd:
         raise NotImplementedError(
-            "expert-LoRA / OPD distillation is supported only for Qwen3.5/3.6 (it monkeypatches "
-            "Qwen3_5MoeExperts). The active model's adapter does not support OPD — see docs/OPD_INTEGRATION.md.")
+            "OPD / expert-LoRA needs a fused experts module with the reference forward; the active model's "
+            "adapter sets supports_opd=False. See docs/OPD_INTEGRATION.md for adding a family.")
 
 class ExpertLoRA(nn.Module):
     """Per-expert low-rank adapters for one Qwen3_5MoeExperts module."""
@@ -48,17 +60,18 @@ def _expert_body(self, hidden_states, top_k_index, top_k_weights):
     final = torch.zeros_like(hidden_states)
     bits, g, s = self._q_bits, self._q_group, self._lora_scale
     lora = self._lora
+    nE = _num_experts(self); act = getattr(self, "act_fn", F.silu)   # model-general (Qwen/Mixtral/OLMoE/DeepSeek…)
     with torch.no_grad():
-        em = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts).permute(2, 1, 0)
+        em = torch.nn.functional.one_hot(top_k_index, num_classes=nE).permute(2, 1, 0)
         hit = torch.greater(em.sum(dim=(-1, -2)), 0).nonzero()
     # Dynamic loop (only routed experts). Safe under checkpointing because the routing is a saved INPUT, so the
     # loop length + per-expert token sets are identical on recompute (the old CheckpointError came from
     # checkpointing the WHOLE decoder layer, which recomputed the ROUTER nondeterministically). _static_loop is
     # retained only for the legacy whole-layer-checkpoint path.
     if getattr(self, "_static_loop", False):
-        _experts = list(range(self.num_experts))
+        _experts = list(range(nE))
     else:
-        _experts = [int(ei[0]) for ei in hit if int(ei[0]) != self.num_experts]
+        _experts = [int(ei[0]) for ei in hit if int(ei[0]) != nE]
     for e in _experts:
         pos, tok = torch.where(em[e])
         x = hidden_states[tok]
@@ -67,7 +80,7 @@ def _expert_body(self, hidden_states, top_k_index, top_k_weights):
         Wgu = MQ.ste_quant(self.gate_up_proj[e].detach() + s * (lora.Bgu[e] @ lora.Agu[e]), bits, g)
         o = F.linear(x, Wgu)
         gate, up = o.chunk(2, dim=-1)
-        h = self.act_fn(gate) * up
+        h = act(gate) * up
         Wdn = MQ.ste_quant(self.down_proj[e].detach() + s * (lora.Bdn[e] @ lora.Adn[e]), bits, g)
         ch = F.linear(h, Wdn)
         ch = ch * top_k_weights[tok, pos, None]
@@ -96,8 +109,9 @@ def attach_expert_lora(model, bits=3.0, group=128, rank=8, scale=2.0, static_loo
     n = 0
     for mod in model.modules():
         if _is_experts(mod):
-            E = mod.num_experts; H = mod.hidden_dim; I = mod.intermediate_dim
-            dev = mod.gate_up_proj.device; dt = mod.gate_up_proj.dtype
+            gu = mod.gate_up_proj                      # [E, 2I, H] — derive dims from shape (model-general)
+            E = gu.shape[0]; H = gu.shape[2]; I = gu.shape[1] // 2
+            dev = gu.device; dt = gu.dtype
             lora = ExpertLoRA(E, H, I, rank, dt, dev)
             mod._lora = lora; mod._q_bits = bits; mod._q_group = group; mod._lora_scale = scale
             mod._static_loop = static_loop   # all-experts loop -> constant saved-tensor count for grad-checkpointing
@@ -114,19 +128,20 @@ def attach_expert_lora(model, bits=3.0, group=128, rank=8, scale=2.0, static_loo
 def _patched_forward_fast(self, hidden_states, top_k_index, top_k_weights):
     final = torch.zeros_like(hidden_states)
     s = self._lora_scale; lora = self._lora
+    nE = _num_experts(self); act = getattr(self, "act_fn", F.silu)
     with torch.no_grad():
-        em = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts).permute(2, 1, 0)
+        em = torch.nn.functional.one_hot(top_k_index, num_classes=nE).permute(2, 1, 0)
         hit = torch.greater(em.sum(dim=(-1, -2)), 0).nonzero()
     for ei in hit:
         e = ei[0]
-        if e == self.num_experts:
+        if e == nE:
             continue
         pos, tok = torch.where(em[e])
         x = hidden_states[tok]
         # base is ALREADY quantized in-place (frozen) -> no per-step fakequant; LoRA in output space
         o = F.linear(x, self.gate_up_proj[e]) + s * F.linear(F.linear(x, lora.Agu[e]), lora.Bgu[e])
         gate, up = o.chunk(2, dim=-1)
-        h = self.act_fn(gate) * up
+        h = act(gate) * up
         ch = F.linear(h, self.down_proj[e]) + s * F.linear(F.linear(h, lora.Adn[e]), lora.Bdn[e])
         ch = ch * top_k_weights[tok, pos, None]
         final.index_add_(0, tok, ch.to(final.dtype))
@@ -148,8 +163,9 @@ def attach_expert_lora_fast(model, bits=3.0, group=128, rank=16, scale=2.0, clip
             for W in (mod.gate_up_proj, mod.down_proj):     # bake quantized base in-place (chunked)
                 for c0 in range(0, W.shape[0], CH):
                     W.data[c0:c0+CH] = MQ.fakequant(W.data[c0:c0+CH], bits, group)
-            E = mod.num_experts; H = mod.hidden_dim; I = mod.intermediate_dim
-            lora = ExpertLoRA(E, H, I, rank, mod.gate_up_proj.dtype, mod.gate_up_proj.device)
+            gu = mod.gate_up_proj                       # [E, 2I, H] — derive dims from shape (model-general)
+            E = gu.shape[0]; H = gu.shape[2]; I = gu.shape[1] // 2
+            lora = ExpertLoRA(E, H, I, rank, gu.dtype, gu.device)
             mod._lora = lora; mod._lora_scale = scale
             mod.forward = _patched_forward_fast.__get__(mod, mod.__class__)
             for p in lora.parameters():
@@ -167,7 +183,7 @@ def merge_fast(model, bits=3.0, group=128):
     for mod in model.modules():
         if _is_experts(mod) and hasattr(mod, "_lora"):
             s = mod._lora_scale; L = mod._lora
-            for e in range(mod.num_experts):
+            for e in range(_num_experts(mod)):
                 mod.gate_up_proj[e] = MQ.fakequant(mod.gate_up_proj[e] + s * (L.Bgu[e] @ L.Agu[e]), bits, group)
                 mod.down_proj[e] = MQ.fakequant(mod.down_proj[e] + s * (L.Bdn[e] @ L.Adn[e]), bits, group)
             del mod._lora
@@ -179,7 +195,7 @@ def merge_and_requantize(model, bits=3.0, group=128):
     for mod in model.modules():
         if _is_experts(mod) and hasattr(mod, "_lora"):
             s = mod._lora_scale; L = mod._lora
-            for e in range(mod.num_experts):
+            for e in range(_num_experts(mod)):
                 dgu = s * (L.Bgu[e] @ L.Agu[e])        # [2I,H]
                 ddn = s * (L.Bdn[e] @ L.Adn[e])        # [H,I]
                 mod.gate_up_proj[e] = MQ.fakequant(mod.gate_up_proj[e] + dgu, bits, group)

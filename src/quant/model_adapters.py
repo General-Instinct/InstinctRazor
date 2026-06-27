@@ -193,14 +193,13 @@ class Qwen35MoeAdapter(ModelAdapter):
     supports_opd = True
 
 
-@register("mixtral", "qwen2_moe", "qwen3_moe", "olmoe", "deepseek_v2", "deepseek_v3",
-          "phimoe", "gpt_oss", "minimax", "jamba", "qwen3_next")
+@register("deepseek_v2", "phimoe", "gpt_oss", "minimax", "jamba")
 class FlatMoEAdapter(ModelAdapter):
     """Fused-expert MoE that loads as a flat text CausalLM — the common case in transformers 5.x. Experts at
     `...experts.gate_up_proj`/`down_proj` (default suffixes); gate/router (`mlp.gate`, `mlp.router`,
     `feed_forward.router`, …) protected by the base regex; shared experts (`.shared_expert(s)`) ride the
-    backbone path. Covers Mixtral, Qwen2/3-MoE, OLMoE, DeepSeek-V2/V3, Phi-MoE, GPT-OSS, MiniMax, and the
-    hybrid Jamba / Qwen3-Next (their mamba / linear-attention layers classify as 'ssm')."""
+    backbone path. Quantization only (supports_opd stays False): these families either differ from the OPD
+    expert-forward reference (gpt_oss: bias + clamp + interleaved GLU) or are unverified for OPD."""
     nested_text_config = False
     auto_model_class = "causal_lm"
     embed_name_substr = None
@@ -208,6 +207,17 @@ class FlatMoEAdapter(ModelAdapter):
     def expert_tensor_names(self, L):
         base = f"model.layers.{L}.mlp.experts"
         return (f"{base}.gate_up_proj", f"{base}.down_proj")
+
+
+@register("mixtral", "qwen2_moe", "qwen3_moe", "olmoe", "qwen3_next", "deepseek_v3")
+class OpdMoEAdapter(FlatMoEAdapter):
+    """Group-A fused MoE: the experts module exposes the SAME forward as the Qwen reference — params
+    `gate_up_proj`/`down_proj`, `gate,up = (x@gate_up_proj[e]).chunk(2); h = act_fn(gate)*up; out = h@down_proj[e]`,
+    routing computed in the parent and passed as `(hidden_states, top_k_index, top_k_weights)`. So the OPD
+    expert-LoRA STE hook (moe_lora) works as-is and these are OPD-capable. (deepseek_v3's experts class is
+    `DeepseekV3NaiveMoe`; OPD requires eager experts impl — the default. The hybrid jamba/gpt_oss/etc. stay on
+    the quant-only FlatMoEAdapter.)"""
+    supports_opd = True
 
 
 @register("dbrx")

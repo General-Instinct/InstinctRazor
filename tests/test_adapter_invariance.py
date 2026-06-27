@@ -166,7 +166,7 @@ def test_olmoe_fused_experts_caught():
     ql = [n for n, _ in ad.iter_quant_linears(model)]
     assert not any(".experts." in n for n in ql)             # fused experts NOT double-counted as linears
     assert ad.is_router(model.model.layers[0].mlp.gate)       # OlmoeTopKRouter detected -> protected
-    assert not ad.supports_opd                                # OLMoE is not OPD-supported (Qwen-only)
+    assert ad.supports_opd                                    # OLMoE is now OPD-capable (Group-A fused MoE)
 
 def test_legacy_separate_experts_now_quantized():
     # GenericMoEAdapter handles the legacy per-expert-nn.Linear layout (old code skipped these entirely)

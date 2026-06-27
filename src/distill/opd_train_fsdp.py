@@ -18,11 +18,8 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 import transformers; transformers.logging.set_verbosity_error()
 import moe_lora as ML, moe_quant as MQ, model_adapters as MA
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
-try:
-    from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeDecoderLayer, Qwen3_5MoeExperts
-except Exception:   # OPD is fused-Qwen-only; placeholders so this module still imports without the arch
-    class Qwen3_5MoeDecoderLayer: pass
-    class Qwen3_5MoeExperts: pass
+# No model-class imports: the FSDP wrap detects experts by duck-type (moe_lora._is_experts) and decoder
+# layers by class-name suffix (*DecoderLayer), so the trainer is model-general across MoE families.
 
 V = 248320; VCHUNK = 128   # shared Qwen3.5/3.6 vocab; set from config at load (bound the vocab scratch)
 
@@ -76,10 +73,13 @@ def wrap_fsdp_opd(model, backbone, lmhead, lora_params=(), cpu_offload=True):
     if cpu_offload:
         from torch.distributed.fsdp import CPUOffloadPolicy
         kw["offload_policy"] = CPUOffloadPolicy()
+    # Generic across MoE families (no Qwen-class dependency): wrap each fused experts module (duck-typed) and
+    # each decoder layer (class name *DecoderLayer — MixtralDecoderLayer, Qwen3MoeDecoderLayer, OlmoeDecoderLayer,
+    # DeepseekV3DecoderLayer, …). The experts predicate matches the same modules moe_lora attaches LoRA to.
     for m in model.modules():
-        if isinstance(m, Qwen3_5MoeExperts): fully_shard(m, **kw)
+        if ML._is_experts(m): fully_shard(m, **kw)
     for m in model.modules():
-        if isinstance(m, Qwen3_5MoeDecoderLayer): fully_shard(m, **kw)
+        if type(m).__name__.endswith("DecoderLayer"): fully_shard(m, **kw)
     fully_shard(backbone, **kw)                                   # text decoder unit: embed + final norm
     fully_shard(model, **kw)                                     # root (≈empty flat param after inner wraps)
     for m in model.modules():                                    # no prefetch: one unit resident at a time
@@ -127,9 +127,18 @@ def main():
         if is0: print(*a, flush=True)
     dev = torch.device(f"cuda:{local}"); t0 = time.time()
 
-    # all-rank CPU load (safetensors mmap shares page cache) -> free vision/MTP -> attach LoRA (CPU) -> shard
-    model = transformers.AutoModelForImageTextToText.from_pretrained(
-        args.model, dtype=torch.bfloat16, device_map="cpu", trust_remote_code=True, low_cpu_mem_usage=True)
+    # all-rank CPU load (safetensors mmap shares page cache) -> free vision/MTP -> attach LoRA (CPU) -> shard.
+    # Pick the AutoModel class from the adapter (Qwen3.5/3.6 VLM -> ImageTextToText; flat MoE -> CausalLM) so
+    # OPD is model-general; keep the ImageTextToText->CausalLM fallback.
+    _cfg0 = transformers.AutoConfig.from_pretrained(args.model, trust_remote_code=True)
+    _lkw = dict(dtype=torch.bfloat16, device_map="cpu", trust_remote_code=True, low_cpu_mem_usage=True)
+    if MA.get_adapter(_cfg0).auto_model_class == "image_text_to_text":
+        try:
+            model = transformers.AutoModelForImageTextToText.from_pretrained(args.model, **_lkw)
+        except Exception:
+            model = transformers.AutoModelForCausalLM.from_pretrained(args.model, **_lkw)
+    else:
+        model = transformers.AutoModelForCausalLM.from_pretrained(args.model, **_lkw)
     model.config.use_cache = False
     # set the active adapter (so attach_expert_lora's fused-only guard sees the right model) and read
     # the real vocab size from config (Qwen3.5 and Qwen3.6 both report 248320; never hardcode).

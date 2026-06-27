@@ -59,15 +59,27 @@ R1/OpenThoughts CoT for breadth. Emphasize problems where teacher CoT is much sh
 3. Re-quantize → re-run BBEH/LCB/GPQA with the SAME budget → measure (a) truncation rate and (b) accuracy vs
    the un-recovered student and vs Gemma. Success = trunc↓ toward 0 AND BBEH/LCB close the gap.
 
-## Model-generality scope (multi-MoE refactor)
-OPD/expert-LoRA is **fused-expert only** (Qwen3.5-122B-A10B and Qwen3.6-35B-A3B, both `model_type:
-qwen3_5_moe`). The whole recovery path is built around the fused 3D expert layout — `_patched_forward`
-indexes `gate_up_proj[e]` / `down_proj[e]` and the FSDP wrap keys on `Qwen3_5MoeExperts` /
-`Qwen3_5MoeDecoderLayer`. Other MoE families are a **non-goal** for OPD (even fused ones like OLMoE, whose
-expert module/forward differ): `moe_lora.attach_expert_lora` raises `NotImplementedError` unless the active
-adapter sets `supports_opd` — only `Qwen35MoeAdapter` does (see model_adapters.py). The fused PTQ + eval
-path is fully model-general; only this recovery stage is Qwen-specific. (OPD Phase C itself is also a separately-documented FSDP blocker —
-see the KNOWN BLOCKER in opd_train_fsdp.py — so no new distill runs are gated on this refactor.)
+## Model-generality scope (multi-family OPD)
+OPD/expert-LoRA is now **model-general across fused MoE families**, not Qwen-only. The recovery path is fully
+duck-typed:
+- `moe_lora._is_experts` detects a fused experts module by its 3D `gate_up_proj`/`down_proj` Parameters (no
+  class import; excludes the shared-expert MLP whose proj are Linears). dims (E/H/I), `num_experts`, and
+  `act_fn` are read from shapes/attrs, not Qwen-specific names.
+- `opd_train_fsdp.wrap_fsdp_opd` wraps experts via `_is_experts` and decoder layers via the `*DecoderLayer`
+  class-name suffix — no `Qwen3_5Moe*` imports.
+- the model is loaded with the adapter's `auto_model_class` (VLM→ImageTextToText, flat→CausalLM, with fallback).
+
+A family is OPD-capable iff its adapter sets `supports_opd=True`. Enabled for the **Group-A** fused families
+whose experts share the reference forward (`gate,up = (x@gate_up_proj[e]).chunk(2); h = act_fn(gate)*up;
+out = h@down_proj[e]`, routing computed in the parent and passed as `(hidden_states, top_k_index,
+top_k_weights)`): `qwen3_5_moe` (Qwen3.5/3.6), `mixtral`, `qwen2_moe`, `qwen3_moe`, `olmoe`, `qwen3_next`,
+`deepseek_v3` (eager experts impl). **Validated:** the OPD FSDP smoke (attach → replicated-LoRA → 2 steps →
+nonzero grad → `SMOKE OK`) runs on a non-Qwen `qwen3_moe` (`Qwen3MoeExperts`/`Qwen3MoeDecoderLayer`).
+
+Families with a DIFFERENT expert math keep `supports_opd=False` and need a per-family expert-compute:
+`gpt_oss` (transposed weights + gate/up bias + interleaved `::2`/`1::2` split + clamp±7 + custom GLU), and
+the atypical `dbrx`/`granitemoe`. `moe_lora.attach_expert_lora` raises `NotImplementedError` when the active
+adapter is not OPD-capable. Quantization (PTQ + eval) is universal regardless.
 
 ## Phase-C FSDP status at 35B (2026-06, smoke-tested on Qwen3.6-35B-A3B, 4×H100)
 The 122B never reached a training step (it OOM'd before the blocker could even be characterized). At

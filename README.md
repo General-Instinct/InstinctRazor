@@ -71,12 +71,13 @@ Same pipeline for all; one adapter (keyed on `config.model_type`) is the only pe
 | Family | `model_type` | Quantize | OPD |
 |------|------|:---:|:---:|
 | Qwen3.5 / 3.6 MoE | `qwen3_5_moe` | ✅ | ✅ |
-| Fused MoE | `mixtral`, `qwen2_moe`, `qwen3_moe`, `olmoe`, `deepseek_v2`, `deepseek_v3`, `phimoe`, `gpt_oss`, `minimax`, `jamba`, `qwen3_next` | ✅ | hook* |
+| Fused MoE | `mixtral`, `qwen2_moe`, `qwen3_moe`, `olmoe`, `qwen3_next`, `deepseek_v3` | ✅ | ✅ |
+| Fused MoE (quant-only) | `deepseek_v2`, `phimoe`, `gpt_oss`, `minimax`, `jamba` | ✅ | hook* |
 | Atypical MoE | `dbrx`, `granitemoe` | ✅ | hook* |
 | Dense | `llama`, `mistral`, `qwen2`, `qwen3`, `gemma2`, `gemma3`, `phi3` | ✅ | — |
 | Anything else | generic fallback | ✅ | hook* |
 
-\* Quantize is universal — transformers 5.x batches every MoE family into fused expert tensors, and the gate/router is auto-protected. OPD recovery is first-class for Qwen3.5/3.6; other families need a small per-family expert-forward hook (the FSDP training, recipe, merge, and eval are all shared).
+\* Quantize is universal — transformers 5.x batches every MoE family into fused expert tensors, and the gate/router is auto-protected. OPD recovery works for any fused MoE whose experts share the reference forward (`gate_up_proj`/`down_proj`, `chunk(2)`, routing-in-parent) — validated on `qwen3_moe`. Families with a different expert math (e.g. `gpt_oss`: bias + clamp + interleaved GLU) need a small per-family expert-compute hook; the FSDP training, recipe, merge, and eval are all shared.
 
 ## Quantization recipe
 
